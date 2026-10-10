@@ -266,3 +266,20 @@ def test_usage_report_period_filter(provider):
     future = provider.client.get('/api/admin/usage?since=2999-01-01T00:00:00Z', headers={'Authorization': f'Bearer {ADMIN}'}).json()
     assert future['counselling_requests'] == 0
     assert future['tokens_provider_reported']['total'] is None
+
+
+@pytest.mark.parametrize('text,safe', [
+    ('The prototype value is 12.8 mg/dL and needs confirmation.', True),
+    ('The prototype value is 12.8 mg / dL.', True),
+    ('यह प्रोटोटाइप मान 12.8 मिलीग्राम प्रति डेसीलीटर है।', True),
+    ('Give 50 mg of iron daily.', False),
+    ('Take 2 tablets.', False),
+    ('दवा 100 मिलीग्राम दें।', False),
+])
+def test_safety_filter_allows_units_but_blocks_doses(text, safe):
+    assert gemini._safe_text(text) is safe
+
+
+def test_defaults_leave_room_for_thinking_tokens():
+    # Live measurement: ~490-920 thinking tokens per call; a 512 budget truncated every answer.
+    assert gemini.MAX_OUTPUT_TOKENS >= 2048 or 'GEMINI_MAX_OUTPUT_TOKENS' in __import__('os').environ

@@ -651,7 +651,8 @@ async function loadCounselling(record) {
   try {
     const person = state.patients.find((item) => item.id === record.patient?.patient_id);
     const context = record.context || {};
-    const response = await apiRequest('/api/counselling', { method: 'POST', timeout: 14000, body: JSON.stringify({
+    // Server Gemini budget is up to ~2x GEMINI_TIMEOUT_SECONDS (model check + generation); deterministic copy shows meanwhile.
+    const response = await apiRequest('/api/counselling', { method: 'POST', timeout: 65000, body: JSON.stringify({
       screening_type: record.result.screening_type, estimate: record.result.estimate, unit: record.result.unit,
       risk_category: record.result.risk_category, confidence: record.result.confidence ?? null, quality_score: record.result.quality_score ?? null,
       provenance: provenanceOf(record.result), language,

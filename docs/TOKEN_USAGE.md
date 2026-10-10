@@ -19,8 +19,8 @@ When Gemini is unavailable, the same deterministic English, Hindi or Bhojpuri co
 |---|---|---|
 | `GEMINI_API_KEY` | empty → Gemini off | Never in frontend JS, Android code, logs or Git |
 | `GEMINI_MODEL` | **empty → Gemini off** | No model ID is hard-coded. Choose one from the [current model list](https://ai.google.dev/gemini-api/docs/models). On 10 Oct 2026 that page listed `gemini-3.8-flash` as stable; this was not exercised with a live key |
-| `GEMINI_TIMEOUT_SECONDS` | `12` | Per HTTP call |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `512` | Sent as `generationConfig.maxOutputTokens`. Thinking tokens count against output on thinking models; a `MAX_TOKENS` finish falls back |
+| `GEMINI_TIMEOUT_SECONDS` | `25` | Per HTTP call. Measured 6–20+ s on `gemini-3.8-flash` (Hindi and Bhojpuri slower) |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `2048` | Sent as `generationConfig.maxOutputTokens`. Thinking tokens count against it: a live run used 490–920 thinking tokens, and the earlier 512 default truncated every answer (`MAX_TOKENS`) |
 | `ABHAYNAYAN_ADMIN_TOKEN` | empty → usage report disabled | 16+ characters; bearer token for `/api/admin/usage` |
 
 **Model verification.** Before the first generation, and again every 10 minutes (60 s after a failure), the server calls `GET v1beta/models/{GEMINI_MODEL}`. It checks that the model exists and that `supportedGenerationMethods` includes `generateContent`. A 404 gives `MODEL_UNAVAILABLE`; a model without that method gives `MODEL_UNSUPPORTED`. In both cases no generation request is sent.
@@ -92,6 +92,19 @@ Logs (`abhaynayan.gemini`) contain only outcome code, provider-called flag, HTTP
 
 The report is aggregate only and never lists individual interactions. Without `ABHAYNAYAN_ADMIN_TOKEN` it returns `403 ADMIN_DISABLED`. The token is compared in constant time. For real deployments, put the endpoint behind network-level access control as well.
 
-## 7. Verification status
+## 7. Live check (10 October 2026)
 
-All behaviour above is covered by `tests/test_gemini.py` using mocked provider responses: success, missing or partial usage metadata, 429 rate vs quota, 5xx, 403, missing model, unsupported model, timeout, network error, malformed or blocked or truncated output, language mismatch, unsafe text, idempotent retry, demo cache, privacy of logs, admin access, and period filter. **No call to the live Gemini API was made**, so real latency, token counts and model behaviour are unverified.
+With an operator key, `models.list` showed `gemini-3.8-flash` among the models available for `generateContent`. It is the configured model because it is the newest stable Flash model and it worked.
+
+| Model | Result |
+|---|---|
+| `gemini-3.8-flash` | Works once the output budget is 2048: accepted responses in 6–13 s, about 800–1,300 total tokens per call (mostly thinking). Some calls timed out at 20 s or returned 503 |
+| `gemini-3.7-flash` | 503 or timeout at 30 s |
+| `gemini-3.6-flash`, `gemini-3.5-flash` | With 512 tokens, every answer was truncated by thinking; later calls returned 503 (`gemini-3.5-flash` reported `modelVersion: gemini-3.6-flash`) |
+| `gemini-2.5-flash` | Listed, but `models.get` returned 404 |
+
+The live run also exposed a false positive: the dose filter blocked the bilirubin unit "mg/dL" (and Hindi "मिलीग्राम प्रति डेसीलीटर"). It now allows the unit and still blocks dose patterns.
+
+## 8. Verification status
+
+All behaviour above is covered by `tests/test_gemini.py` using mocked provider responses: success, missing or partial usage metadata, 429 rate vs quota, 5xx, 403, missing model, unsupported model, timeout, network error, malformed or blocked or truncated output, language mismatch, unsafe text, idempotent retry, demo cache, privacy of logs, admin access, and period filter. The automated tests make no live call. Live behaviour was checked manually (§7) and varies with provider load.

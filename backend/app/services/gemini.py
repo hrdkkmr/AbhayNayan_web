@@ -30,8 +30,10 @@ API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 # No default model ID: an operator must choose one from current provider documentation.
 MODEL = os.getenv('GEMINI_MODEL', '').strip()
 BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-TIMEOUT_SECONDS = float(os.getenv('GEMINI_TIMEOUT_SECONDS', '12') or 12)
-MAX_OUTPUT_TOKENS = int(os.getenv('GEMINI_MAX_OUTPUT_TOKENS', '512') or 512)
+# Measured 10 Oct 2026 on gemini-3.8-flash: 8-20+ s (Hindi/Bhojpuri slower) and ~550-920 thinking tokens per counselling call.
+# Thinking tokens count against maxOutputTokens, so 512 truncated every answer (finishReason MAX_TOKENS).
+TIMEOUT_SECONDS = float(os.getenv('GEMINI_TIMEOUT_SECONDS', '25') or 25)
+MAX_OUTPUT_TOKENS = int(os.getenv('GEMINI_MAX_OUTPUT_TOKENS', '2048') or 2048)
 MODEL_CHECK_TTL_OK = 600.0
 MODEL_CHECK_TTL_FAIL = 60.0
 IDEMPOTENCY_TTL = 900.0
@@ -50,8 +52,9 @@ RESPONSE_SCHEMA = {
 }
 
 # Phrases suggesting a diagnosis/treatment claim or fabricated biomarker output force a deterministic fallback.
-_UNSAFE = re.compile(r'\b(cure|diagnosed with|you have (?:anemia|anaemia|jaundice)|this is (?:anemia|anaemia|jaundice)|confirmed anemia|confirmed anaemia|confirmed jaundice|prescribe|take \d+|\d+\s*mg|start medication|stop medication|normal result|all clear|no disease)\b', re.I)
-_UNSAFE_HI = re.compile(r'(पक्का निदान|दवा की खुराक|मिलीग्राम|ठीक हो गया|कोई बीमारी नहीं|सब सामान्य)')
+# Dose patterns ("50 mg") are blocked, but the bilirubin unit itself ("12.8 mg/dL") is allowed.
+_UNSAFE = re.compile(r'\b(cure|diagnosed with|you have (?:anemia|anaemia|jaundice)|this is (?:anemia|anaemia|jaundice)|confirmed anemia|confirmed anaemia|confirmed jaundice|prescribe|take \d+|\d+\s*mg(?!\s*/\s*d[Ll])|start medication|stop medication|normal result|all clear|no disease)\b', re.I)
+_UNSAFE_HI = re.compile(r'(पक्का निदान|दवा की खुराक|मिलीग्राम(?!\s*(?:प्रति|/)\s*(?:डेसीलीटर|डीएल|dL))|ठीक हो गया|कोई बीमारी नहीं|सब सामान्य)')
 _DEVANAGARI = re.compile(r'[ऀ-ॿ]')
 
 _model_check: dict[str, Any] = {}

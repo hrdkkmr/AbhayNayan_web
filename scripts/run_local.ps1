@@ -15,6 +15,16 @@ try {
 } catch { $PythonReady = $false }
 if (-not $PythonReady) { & $Python -m pip install -r (Join-Path $Root 'requirements.txt') }
 
+# Load server-only settings from .env (gitignored). Variables already set in the shell win; values are never printed.
+$EnvFile = Join-Path $Root '.env'
+if (Test-Path $EnvFile) {
+    foreach ($line in Get-Content $EnvFile) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$' -and $Matches[2] -ne '') {
+            $name = $Matches[1]; $value = $Matches[2].Trim('"').Trim("'")
+            if (-not [Environment]::GetEnvironmentVariable($name)) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
+        }
+    }
+}
 $env:PYTHONPATH = (Join-Path $Root 'backend') + $(if ($env:PYTHONPATH) { ";$env:PYTHONPATH" } else { '' })
 if (-not $env:ABHAYNAYAN_DB_PATH) { $env:ABHAYNAYAN_DB_PATH = Join-Path $Root 'backend/data/abhaynayan.sqlite3' }
 $HostName = if ($env:HOST) { $env:HOST } else { '0.0.0.0' }
