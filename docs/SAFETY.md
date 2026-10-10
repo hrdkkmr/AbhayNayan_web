@@ -5,6 +5,9 @@
 ## Non-negotiable use boundary
 
 - Every Hb and bilirubin number in the demo is a fixed synthetic fixture chosen by the user. It is **not derived** from a person, image, camera pixels, optical features, or a clinically approved model.
+- Fixtures carry `provenance: DEMO_SYNTHETIC` and **no** confidence or quality score. Earlier builds showed placeholder percentages; these were not measurements and have been removed.
+- An operator can enable the anemia research baseline (`ABHAYNAYAN_ENABLE_EXPERIMENTAL_ANEMIA=1`). Its output is labelled `EXPERIMENTAL_RESEARCH_ONLY`, accepts research-dataset features only (never camera features), and is refused for real profiles. No bilirubin model exists in any mode.
+- Urgency, referral flag, next step and safety note always come from reviewed deterministic code. Gemini may only reword explanatory text.
 - Demo risk tags are software examples only. They are not clinical risk categories, triage instructions, thresholds, or validated referral rules.
 - Never use an app value to diagnose, reassure, triage, delay care, start/stop/change treatment, or override a clinician.
 - Clinical confirmation must use appropriate established testing (for example, CBC for hemoglobin or serum bilirubin testing as appropriate) and qualified clinician review under local protocol. This prototype does not replace those services.
@@ -38,7 +41,7 @@
 - The inspected jaundice ZIP contained 478 JPEG files in Forehead/Sternum folders, with no discovered bilirubin label table. No jaundice model was trained or evaluated from these images.
 - Dataset license, provenance, consent, ethics approvals, representativeness, and intended reuse are unverified. Do not redistribute, train further, publish, or claim validation without permission and review.
 - The user's Colab notebook was inspected statically but not run. Its repeated draft code and Kaggle input assumptions are not evidence of a trained or validated model.
-- Raw datasets and images are not part of this source tree or distributable package. See `dataset-audit.md` for the inspection summary.
+- Raw datasets and images are not part of this source tree or distributable package. See `DATA_PROVENANCE.md` for the manifest and redistribution policy and `ML_MODEL_CARD.md` for model evidence.
 
 ## Human factors and implementation change review
 

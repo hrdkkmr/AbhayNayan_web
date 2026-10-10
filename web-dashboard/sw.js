@@ -1,4 +1,4 @@
-const CACHE_NAME = 'abhaynayan-shell-v1';
+const CACHE_NAME = 'abhaynayan-shell-v2';
 const APP_SHELL = [
   '/', '/index.html', '/css/app.css', '/js/app.js', '/js/store.js', '/js/vision.js',
   '/js/inference.js', '/js/language.js', '/js/fhir.js', '/manifest.webmanifest',

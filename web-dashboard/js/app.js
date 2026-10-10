@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import { assessImageQuality, correctAmbientLight, createSyntheticImage, extractOpticalFeatures, imageDataFromCanvas } from './vision.js';
-import { formatEstimate, getDemoCases, riskTone, runDemoInference } from './inference.js';
+import { PROVENANCE, formatEstimate, formatScore, getDemoCases, provenanceOf, riskTone, runDemoInference } from './inference.js';
 import { LANGUAGES, localCounsel, navLabels } from './language.js';
 import { buildFhirBundle, downloadJson } from './fhir.js';
 
@@ -11,31 +11,57 @@ const state = {
   cameraActive: false, regionConfirmed: false, syntheticImage: false, quality: null,
   opticalFeatures: null, ambientResult: null, selectedCaseId: '', lastRecord: null,
   counselling: null, lastCounselLanguage: '', localOnly: false, referral: null,
-  apiHealth: null, filter: 'all', search: '',
+  apiHealth: null, filter: 'all', search: '', context: { infantAgeHours: null, gestationalWeek: null },
+  usageReport: null, usageError: '', syncing: false,
+};
+// Shared web/Android sync status semantics (docs/API_CONTRACT.md): queued → synced | failed (retryable) | rejected | conflict.
+const SYNC_LABELS = {
+  synced: ['Synced', 'badge-green'], queued: ['Queued locally', 'badge-amber'], failed: ['Sync failed · will retry', 'badge-red'],
+  rejected: ['Rejected by server', 'badge-red'], conflict: ['Conflict · server copy kept', 'badge-red'],
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-const pageNames = { home: 'Home', new: 'New screening', patients: 'Patients', history: 'History', sync: 'Sync queue', phc: 'PHC dashboard', architecture: 'Pipeline & architecture', model: 'Model & data audit', settings: 'Settings', result: 'Screening result' };
+const pageNames = { home: 'Home', new: 'New screening', patients: 'Patients', history: 'History', sync: 'Sync queue', phc: 'PHC dashboard', architecture: 'Pipeline & architecture', model: 'Model & data audit', settings: 'Settings', result: 'Screening result', usage: 'AI usage (admin)' };
 
 async function apiRequest(path, options = {}) {
-  if (state.simulateOffline || !navigator.onLine) throw new Error('Offline mode — saved locally on this device.');
+  if (state.simulateOffline || !navigator.onLine) throw Object.assign(new Error('Offline mode — saved locally on this device.'), { code: 'OFFLINE', retryable: true });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeout || 6500);
   const headers = new Headers(options.headers || {});
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   try {
-    const response = await fetch(path, { ...options, headers, signal: controller.signal });
+    let response;
+    try { response = await fetch(path, { ...options, headers, signal: controller.signal }); }
+    catch (error) {
+      const timedOut = error?.name === 'AbortError';
+      throw Object.assign(new Error(timedOut ? 'The server did not respond in time.' : 'The server could not be reached.'), { code: timedOut ? 'TIMEOUT' : 'NETWORK_ERROR', retryable: true });
+    }
     if (!response.ok) {
-      let detail = `Request failed (${response.status}).`;
-      try { const body = await response.json(); detail = body.detail || detail; } catch { /* response may not be JSON */ }
-      throw new Error(detail);
+      // Contract 1.0 error envelope: { detail, error: { code, message, status, retryable, fields } }.
+      let detail = `Request failed (${response.status}).`; let code = 'HTTP_ERROR'; let retryable = response.status >= 500;
+      try {
+        const body = await response.json();
+        detail = body.error?.message || (typeof body.detail === 'string' ? body.detail : detail);
+        code = body.error?.code || code; retryable = body.error?.retryable ?? retryable;
+      } catch { /* response may not be JSON */ }
+      throw Object.assign(new Error(detail), { code, status: response.status, retryable });
     }
     return response;
   } finally { clearTimeout(timer); }
 }
+
+function provenanceBadge(result) {
+  const info = PROVENANCE[provenanceOf(result)] || PROVENANCE.DEMO_SYNTHETIC;
+  return `<span class="badge ${info.tone}" title="${escapeHtml(info.detail)}">${escapeHtml(info.short)}</span>`;
+}
+function syncBadge(record) {
+  const [label, tone] = SYNC_LABELS[record.sync_status] || SYNC_LABELS.queued;
+  return `<span class="badge ${tone}"${record.last_sync_error ? ` title="${escapeHtml(record.last_sync_error)}"` : ''}>${escapeHtml(label)}</span>`;
+}
+function isSyncProblem(record) { return ['failed', 'rejected', 'conflict'].includes(record.sync_status); }
 
 function toast(message, type = 'success') {
   const region = $('#toastRegion');
@@ -104,13 +130,14 @@ function emptyState(icon, title, message, button = '') {
 }
 function recordRows(records, emptyCopy = 'Complete a synthetic demonstration to see a record here.') {
   if (!records.length) return emptyState('◷', 'No screening records yet', emptyCopy, `<button class="btn btn-primary btn-sm" data-action="start-screening">Start a demo screening</button>`);
-  return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Patient ID</th><th>Screening</th><th>Prototype estimate</th><th>Demo tag</th><th>Date</th><th>Sync</th><th></th></tr></thead><tbody>${records.map((record) => `<tr>
+  return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Patient ID</th><th>Screening</th><th>Value</th><th>Source</th><th>Demo tag</th><th>Date</th><th>Sync</th><th></th></tr></thead><tbody>${records.map((record) => `<tr>
     <td class="table-strong">${escapeHtml(record.patient?.patient_id || record.patient_id || '—')}</td>
     <td>${escapeHtml(typeLabel(record.result?.screening_type))}</td>
     <td class="table-strong">${escapeHtml(localResultLabel(record))}</td>
+    <td>${provenanceBadge(record.result)}</td>
     <td><span class="badge ${riskClass(record.result?.risk_category)}">${escapeHtml(record.result?.risk_category || 'DEMO_ONLY')}</span></td>
     <td>${escapeHtml(dateLabel(record.created_at))}</td>
-    <td><span class="badge ${record.sync_status === 'synced' ? 'badge-green' : 'badge-amber'}">${record.sync_status === 'synced' ? 'Synced' : 'Queued locally'}</span></td>
+    <td>${syncBadge(record)}</td>
     <td><button class="btn btn-secondary btn-sm" data-action="open-record" data-screening-id="${escapeHtml(record.id)}">Review</button></td>
   </tr>`).join('')}</tbody></table></div>`;
 }
@@ -127,13 +154,16 @@ async function renderHome() {
     state.apiHealth = await response.json(); apiState = 'connected';
   } catch { state.apiHealth = null; apiState = 'local-only'; }
   const newest = [...screenings].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5);
+  const failed = screenings.filter(isSyncProblem).length + queue.filter((item) => item.last_sync_error && !isSyncProblem(item)).length;
+  const demoCount = screenings.filter((record) => provenanceOf(record.result) === 'DEMO_SYNTHETIC').length;
+  const offline = state.simulateOffline || !navigator.onLine;
   return `${`<section class="hero-panel"><div class="hero-content"><div class="hero-kicker"><span class="pulse-dot"></span> LOCAL-FIRST · DEMO ONLY</div><h1>Clearer next steps.<br>Closer to the community.</h1><p>Explore maternal anemia and newborn jaundice workflows with a transparent, synthetic screening prototype. No camera frame is uploaded.</p><div class="hero-buttons"><button class="btn btn-light" data-action="start-screening">＋ Start a screening</button><button class="btn btn-outline-light" data-page="architecture">Explore the pipeline <span>→</span></button></div></div><div class="hero-illustration" aria-hidden="true"><div class="hero-orbit"><div class="hero-shield">अ</div></div></div></section>`}
     <div class="online-banner ${state.simulateOffline || !navigator.onLine ? 'offline' : ''}" style="margin-top:14px"><div class="banner-icon">${state.simulateOffline || !navigator.onLine ? '⇄' : '▣'}</div><div class="banner-copy"><strong>${state.simulateOffline || !navigator.onLine ? 'Offline-first demo is ready' : `API ${apiState === 'connected' ? 'connected' : 'not reachable'} · local workflow remains available`}</strong><span>Patient details and camera pixels stay in this browser. Server sync sends a pseudonymous ID and synthetic demo record only.</span></div></div>
     <div class="card-grid grid-4" style="margin-top:15px">
-      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Local screenings</span><span class="stat-icon">◷</span></div><div class="stat-number">${screenings.length}</div><div class="stat-caption">Synthetic demo records</div></div>
-      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Today on this device</span><span class="stat-icon">▦</span></div><div class="stat-number">${todayCount}</div><div class="stat-caption">Not a population metric</div></div>
-      <div class="panel stat-card stat-warning"><div class="stat-top"><span class="stat-label">Awaiting sync</span><span class="stat-icon">⇄</span></div><div class="stat-number">${queue.length}</div><div class="stat-caption">Stored locally until online</div></div>
-      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Local patient profiles</span><span class="stat-icon">♙</span></div><div class="stat-number">${patients.length}</div><div class="stat-caption">Names remain on this device</div></div>
+      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Completed on this device</span><span class="stat-icon">◷</span></div><div class="stat-number">${screenings.length}</div><div class="stat-caption">${demoCount} of ${screenings.length} are synthetic demo records · ${todayCount} today</div></div>
+      <div class="panel stat-card stat-warning"><div class="stat-top"><span class="stat-label">Pending sync</span><span class="stat-icon">⇄</span></div><div class="stat-number">${queue.length}</div><div class="stat-caption">${offline ? 'Offline · kept safely on this device' : 'Saved locally until synchronized'}</div></div>
+      <div class="panel stat-card ${failed ? 'stat-danger' : ''}"><div class="stat-top"><span class="stat-label">Sync problems</span><span class="stat-icon">!</span></div><div class="stat-number">${failed}</div><div class="stat-caption">${failed ? '<button class="view-link" data-page="sync">Review in sync queue →</button>' : 'No failed, rejected, or conflicting records'}</div></div>
+      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Local patient profiles</span><span class="stat-icon">♙</span></div><div class="stat-number">${patients.length}</div><div class="stat-caption">Names remain on this device · ${referrals.length} referral brief(s)</div></div>
     </div>
     <div class="section-title-row"><div><h2>Choose a screening workflow</h2><p>Every output is a named synthetic fixture, not a pixel-derived measurement.</p></div></div>
     <div class="card-grid grid-2">
@@ -146,6 +176,29 @@ async function renderHome() {
 }
 
 function selectedPatient() { return state.patients.find((person) => person.id === state.selectedPatientId) || null; }
+function contextFromPatient() {
+  const patient = selectedPatient();
+  state.context = { infantAgeHours: patient?.infantAgeHours ?? null, gestationalWeek: patient?.gestationalWeek ?? null };
+}
+function contextIsValid() {
+  if (state.screeningType !== 'neonatal_jaundice') {
+    const week = state.context.gestationalWeek;
+    return week === null || (Number.isInteger(week) && week >= 1 && week <= 45);
+  }
+  const hours = state.context.infantAgeHours;
+  return Number.isInteger(hours) && hours >= 0 && hours <= 8760;
+}
+function screeningContext(patient) {
+  // Only non-identifying context accepted by the API contract (ScreeningContext).
+  return state.screeningType === 'neonatal_jaundice'
+    ? { infant_age_hours: state.context.infantAgeHours, gestational_week: null, pregnancy: null }
+    : { infant_age_hours: null, gestational_week: state.context.gestationalWeek, pregnancy: patient?.pregnancy ?? null };
+}
+function parseIntInput(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && Number.isInteger(number) ? number : NaN;
+}
 function screeningTypeDetails(type) {
   return type === 'neonatal_jaundice'
     ? { title: 'Neonatal jaundice', subtitle: 'Forehead/sclera workflow · demo bilirubin fixture only', icon: '☼', guide: 'Sclera / eye region', unit: 'mg/dL' }
@@ -161,17 +214,24 @@ function renderWizard() {
   const details = screeningTypeDetails(state.screeningType);
   const step = state.wizardStep;
   let body = '';
+  const isNeonatal = state.screeningType === 'neonatal_jaundice';
+  const contextValid = contextIsValid();
   if (step === 1) {
     body = `<div class="card-grid grid-2">
-      <div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Select a local patient</h2><p style="margin:4px 0 12px;color:var(--body);font-size:9px">No name, phone, or photo is sent to the server.</p></div><button class="btn btn-secondary btn-sm" data-action="new-patient">＋ Add patient</button></div>
+      <div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Select a local patient</h2><p style="margin:4px 0 12px;color:var(--body);font-size:13px">No name, phone, or photo is sent to the server.</p></div><button class="btn btn-secondary btn-sm" data-action="new-patient">＋ Add patient</button></div>
         <div class="form-field"><label for="patientSelect">Patient profile</label><select class="select" id="patientSelect">${state.patients.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === state.selectedPatientId ? 'selected' : ''}>${escapeHtml(item.name || 'Local profile')} · ${escapeHtml(item.id)}${item.isDemo ? ' · synthetic demo' : ' · local only'}</option>`).join('')}</select></div>
         ${patient ? `<div class="card-note" style="margin-top:12px"><strong>${escapeHtml(patient.name || 'Local profile')}</strong> · ${escapeHtml(patient.id)}<br>${patient.isDemo ? 'Synthetic profile · eligible for the fixed demo fixtures.' : 'Real/local profile · optical quality and feature visualization only; no synthetic estimate will be linked.'}</div>` : ''}
       </div>
-      <div class="panel panel-pad"><h2 style="margin:0 0 4px;color:var(--navy);font-size:14px">Choose the workflow</h2><p style="margin:0 0 12px;color:var(--body);font-size:9px">This selection changes labels and synthetic examples; it does not diagnose.</p>
+      <div class="panel panel-pad"><h2 style="margin:0 0 4px;color:var(--navy);font-size:14px">Choose the workflow</h2><p style="margin:0 0 12px;color:var(--body);font-size:13px">This selection changes labels and synthetic examples; it does not diagnose.</p>
         <div class="col"><button class="screening-choice ${state.screeningType === 'maternal_anemia' ? 'selected' : ''}" data-task="maternal_anemia"><span class="choice-icon">♡</span><span><strong>Maternal anemia</strong><span>Conjunctiva guide · Hb units (g/dL)</span></span><span class="choice-arrow">→</span></button>
         <button class="screening-choice ${state.screeningType === 'neonatal_jaundice' ? 'selected' : ''}" data-task="neonatal_jaundice"><span class="choice-icon gold">☼</span><span><strong>Neonatal jaundice</strong><span>Sclera guide · bilirubin units (mg/dL)</span></span><span class="choice-arrow">→</span></button></div>
       </div></div>
-      <div class="row-between" style="margin-top:16px"><span class="card-note">Patient details are stored only in this browser. A non-demo profile cannot receive a synthetic fixture result.</span><button class="btn btn-primary" data-action="wizard-next" ${patient ? '' : 'disabled'}>Continue to camera guide →</button></div>`;
+      <div class="panel panel-pad" style="margin-top:14px"><h2 class="panel-title">Screening details</h2>
+        ${isNeonatal
+          ? `<div class="form-grid"><div class="form-field"><label for="ctxInfantAge">Newborn age in hours <span class="required">required</span></label><input class="input input-lg" id="ctxInfantAge" type="number" inputmode="numeric" min="0" max="8760" step="1" value="${escapeHtml(state.context.infantAgeHours ?? '')}" aria-describedby="ctxInfantAgeHelp"><span class="field-help" id="ctxInfantAgeHelp">Hours since birth. Newborn jaundice review depends on exact age in hours, so this is recorded with the screening.</span></div></div>`
+          : `<div class="form-grid"><div class="form-field"><label for="ctxGestWeek">Gestational week <span class="optional">optional</span></label><input class="input input-lg" id="ctxGestWeek" type="number" inputmode="numeric" min="1" max="45" step="1" value="${escapeHtml(state.context.gestationalWeek ?? '')}"><span class="field-help">Leave blank if unknown or not pregnant.</span></div></div>`}
+        <p class="field-help" style="margin-top:8px">Only these fields and a pseudonymous ID can leave the device. No name, phone number, or photo is collected for sync.</p></div>
+      <div class="row-between" style="margin-top:16px"><span class="card-note">Patient details are stored only in this browser. A non-demo profile cannot receive a synthetic fixture result.</span><button class="btn btn-primary" data-action="wizard-next" ${patient && contextValid ? '' : 'disabled'}>Continue to camera guide →</button></div>`;
   } else if (step === 2) {
     const q = state.quality;
     const isJaundice = state.screeningType === 'neonatal_jaundice';
@@ -184,11 +244,11 @@ function renderWizard() {
       <div class="camera-overlay"><div class="camera-guide ${isJaundice ? '' : 'eye-guide'}"></div><span class="camera-cross"></span></div>
       <div class="camera-caption"><span>${escapeHtml(details.guide)} · manual guide</span><span>${state.syntheticImage ? 'SYNTHETIC FIXTURE' : state.captureSource ? 'LOCAL IMAGE' : 'NO CAPTURE'}</span></div>
     </div><div class="camera-controls"><button class="btn btn-primary btn-sm" data-action="start-camera" ${state.cameraActive ? 'disabled' : ''}>◉ Open camera</button><button class="btn btn-secondary btn-sm" data-action="capture-frame" ${state.cameraActive ? '' : 'disabled'}>Capture frame</button><button class="btn btn-secondary btn-sm" data-action="open-file">Choose local image</button><button class="btn btn-amber btn-sm" data-action="synthetic-image">Use abstract synthetic image</button></div></div>
-      <aside class="panel camera-side"><div class="row-between"><strong style="color:var(--navy);font-size:12px">Local image quality gate</strong><span class="badge ${q?.ready ? 'badge-green' : 'badge-gray'}">${q?.ready ? 'READY' : 'WAITING'}</span></div>
-        <p style="margin:6px 0;color:var(--body);font-size:9px">Brightness and edge sharpness are measured in-browser. No anatomy landmarks are bundled.</p>
+      <aside class="panel camera-side"><div class="row-between"><strong style="color:var(--navy);font-size:14px">Local image quality gate</strong><span class="badge ${q?.ready ? 'badge-green' : 'badge-gray'}">${q?.ready ? 'READY' : 'WAITING'}</span></div>
+        <p style="margin:6px 0;color:var(--body);font-size:13px">Brightness and edge sharpness are measured in-browser. No anatomy landmarks are bundled.</p>
         <div class="signal-list"><div class="signal-row"><span>Brightness</span><strong>${q ? `${escapeHtml(q.brightness)} / 255` : '—'}</strong></div><div class="signal-row"><span>Edge/blur proxy</span><strong>${q ? `${Math.round(q.blurScore * 100)}%` : '—'}</strong></div><div class="signal-row"><span>Manual region check</span><strong>${q?.regionConfirmed ? 'CONFIRMED' : 'REQUIRED'}</strong></div></div>
         <div class="quality-meter"><span style="width:${qualityPct}%;background:${qualityColor === 'bad' ? '#c4484f' : qualityColor === 'warn' ? '#d9912b' : ''}"></span></div><div class="quality-readout"><span>Prototype quality score</span><strong>${q ? `${qualityPct}%` : '0%'}</strong></div>
-        ${q?.reasons?.length ? `<ul style="padding-left:17px;color:#9b6220;font-size:8px;line-height:1.6">${q.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : q?.ready ? `<div class="callout" style="margin-top:10px">Quality gate passed for this demo flow. This is not a clinical capture-quality guarantee.</div>` : ''}
+        ${q?.reasons?.length ? `<ul style="padding-left:17px;color:#9b6220;font-size:12px;line-height:1.6">${q.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : q?.ready ? `<div class="callout" style="margin-top:10px">Quality gate passed for this demo flow. This is not a clinical capture-quality guarantee.</div>` : ''}
         ${state.captureSource && !state.syntheticImage ? `<label class="check-row" style="margin-top:12px"><input type="checkbox" id="regionConfirm" ${state.regionConfirmed ? 'checked' : ''}><span>I manually confirm the target region is inside the guide. Landmark detection is not available.</span></label>` : ''}
         <div class="card-note" style="margin-top:12px"><strong>Flash correction:</strong> only an experimental browser visualization is available; no synchronized hardware flash pair or clinical calibration is claimed.</div>
       </aside></div>
@@ -199,10 +259,10 @@ function renderWizard() {
     const patientCanDemo = Boolean(patient?.isDemo && state.syntheticImage);
     const features = state.opticalFeatures;
     const caseOptions = cases.map((item) => `<button class="screening-choice ${state.selectedCaseId === item.id ? 'selected' : ''}" data-case-id="${escapeHtml(item.id)}"><span class="choice-icon ${item.category?.includes('HIGH') || item.category?.includes('ESCALATE') ? 'gold' : ''}">${item.category?.includes('HIGH') || item.category?.includes('ESCALATE') ? '↗' : '◈'}</span><span><strong>${escapeHtml(item.name)}</strong><span>Fixed synthetic fixture · ${escapeHtml(Number(item.value).toFixed(1))} ${escapeHtml(item.unit)} · ${escapeHtml(item.category)}</span></span><span class="choice-arrow">${state.selectedCaseId === item.id ? '✓' : '○'}</span></button>`).join('');
-    body = `<div class="card-grid grid-2"><div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Optical-feature preview</h2><p style="margin:4px 0 12px;color:var(--body);font-size:9px">Computed locally from the center guide; not used to select the estimate.</p></div><span class="badge badge-blue">LOCAL ONLY</span></div>
+    body = `<div class="card-grid grid-2"><div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Optical-feature preview</h2><p style="margin:4px 0 12px;color:var(--body);font-size:13px">Computed locally from the center guide; not used to select the estimate.</p></div><span class="badge badge-blue">LOCAL ONLY</span></div>
       ${features ? `<div class="kpi-strip"><div><strong>${features.rgb.r.toFixed(1)}</strong><span>R mean</span></div><div><strong>${features.rgb.g.toFixed(1)}</strong><span>G mean</span></div><div><strong>${features.rgb.b.toFixed(1)}</strong><span>B mean</span></div></div><div class="form-grid" style="margin-top:11px"><div class="metric-target"><strong>${features.hsv.h.toFixed(1)}° / ${features.hsv.s.toFixed(1)}%</strong><span>HSV hue / saturation</span></div><div class="metric-target"><strong>${features.labApprox.L.toFixed(1)} / ${features.labApprox.a.toFixed(1)} / ${features.labApprox.b.toFixed(1)}</strong><span>Approximate CIELAB L*a*b*</span></div><div class="metric-target"><strong>${features.yCrCb.y.toFixed(1)} / ${features.yCrCb.cr.toFixed(1)} / ${features.yCrCb.cb.toFixed(1)}</strong><span>Y / Cr / Cb</span></div><div class="metric-target"><strong>${features.sampleCount}</strong><span>Sampled pixels (downsampled)</span></div></div>` : `<div class="card-note">No feature vector available. Return to the camera step and capture a local or synthetic image.</div>`}
       <div class="card-note" style="margin-top:12px">${escapeHtml(features?.note || 'No image pixels are sent to the server.')} Color is uncalibrated; feature values are not hemoglobin or bilirubin readings.</div></div>
-      <div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Select a named synthetic case</h2><p style="margin:4px 0 12px;color:var(--body);font-size:9px">The estimate below is selected from a fixed fixture, never computed from the image.</p></div><span class="badge badge-amber">DEMO ONLY</span></div><div class="col">${caseOptions}</div>
+      <div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Select a named synthetic case</h2><p style="margin:4px 0 12px;color:var(--body);font-size:13px">The estimate below is selected from a fixed fixture, never computed from the image.</p></div><span class="badge badge-amber">DEMO ONLY</span></div><div class="col">${caseOptions}</div>
         ${patientCanDemo ? `<div class="callout" style="margin-top:11px">Linked to <strong>${escapeHtml(patient.name)}</strong> (${escapeHtml(patient.id)}), a synthetic demo profile and abstract synthetic image only.</div>` : `<div class="safety-note danger" style="margin-top:11px"><strong>Estimate disabled for this capture/profile.</strong><br>${patient?.isDemo ? 'A real camera/import image may be used for local quality and feature visualization only. Go back and choose the abstract synthetic image to run a disconnected fixture demo.' : 'Current prototype has no clinical model. A synthetic result cannot be attached to a real/local patient profile.'}</div>`}
       </div></div>
       ${safetyBlock('This selected fixture is synthetic, not derived from camera pixels, optical features, or a trained clinical model. Do not use it for diagnosis, triage, or treatment decisions.')}
@@ -224,17 +284,23 @@ function renderResult() {
   const script = counsel.counselling_script || counsel.script || '';
   const counselMode = counsel.mode || 'LOCAL_FALLBACK';
   const audit = state.lastRecord.capture_audit || state.captureAudit || null;
-  return `${pageHead('Prototype screening result', 'A demo estimate — never a diagnosis', 'This fixed synthetic example illustrates how the app presents a result. It was not inferred from the captured image or a patient’s optical features.', `<button class="btn btn-secondary" data-action="new-screening">＋ New screening</button>`)}
-    <div class="result-hero"><div><div class="result-overline">SYNTHETIC FIXTURE · ${escapeHtml(typeLabel(type))}</div><div class="result-value">${escapeHtml(Number(result.estimate).toFixed(1))} <small>${escapeHtml(result.unit)}</small></div><div class="result-title">${escapeHtml(result.case_label || 'Synthetic demo case')}</div><div class="result-summary">Patient ID: ${escapeHtml(record.patient?.patient_id || '—')} · ${escapeHtml(dateLabel(record.created_at))} · no pixel-derived estimate</div></div><div class="risk-pill ${severity === 'red' ? 'badge-red' : severity === 'amber' ? 'badge-amber' : ''}">${escapeHtml(result.risk_category)}</div></div>
-    <div class="result-metrics"><div class="metric-card"><span>Prototype confidence indicator · not clinical probability</span><strong>${Math.round(result.confidence * 100)}%</strong><em>Placeholder from fixed case metadata</em></div><div class="metric-card"><span>Fixed-case quality placeholder</span><strong>${Math.round(result.quality_score * 100)}%</strong><em>Case metadata; not the captured image score</em></div><div class="metric-card"><span>Inference mode</span><strong style="font-size:15px">${escapeHtml(result.model_mode)}</strong><em>Fixed deterministic fixture · model not present</em></div></div>
+  const provenance = provenanceOf(result);
+  const isDemo = provenance === 'DEMO_SYNTHETIC';
+  const info = PROVENANCE[provenance];
+  const ageHours = record.context?.infant_age_hours;
+  return `${pageHead('Prototype screening result', isDemo ? 'A demo value — never a diagnosis' : 'Experimental output — never a diagnosis', isDemo ? 'This fixed synthetic example shows how the app presents a result. It was not inferred from the captured image or any person’s features.' : 'Output of a non-validated research model, shown only for controlled research demonstrations.', `<button class="btn btn-secondary" data-action="new-screening">＋ New screening</button>`)}
+    <div class="provenance-banner ${isDemo ? '' : 'danger'}" role="note"><strong>${escapeHtml(info.label)}</strong><span>${escapeHtml(info.detail)} Source: ${escapeHtml(result.model_version || result.model_mode)} · generated ${escapeHtml(dateLabel(result.generated_at))}.</span></div>
+    <div class="result-hero"><div><div class="result-overline">${isDemo ? 'SYNTHETIC FIXTURE' : 'EXPERIMENTAL · RESEARCH ONLY'} · ${escapeHtml(typeLabel(type))}</div><div class="result-value">${escapeHtml(Number(result.estimate).toFixed(1))} <small>${escapeHtml(result.unit)}</small></div><div class="result-title">${escapeHtml(result.case_label || info.label)}</div><div class="result-summary">Patient ID: ${escapeHtml(record.patient?.patient_id || '—')} · ${escapeHtml(dateLabel(record.created_at))}${ageHours !== null && ageHours !== undefined ? ` · newborn age ${escapeHtml(ageHours)} h` : ''} · ${isDemo ? 'no pixel-derived estimate' : 'not a measurement'}</div></div><div class="risk-pill ${severity === 'red' ? 'badge-red' : severity === 'amber' ? 'badge-amber' : ''}">${escapeHtml(result.risk_category)}</div></div>
+    <div class="result-metrics"><div class="metric-card"><span>Model confidence</span><strong>${escapeHtml(formatScore(result.confidence))}</strong><em>${result.confidence === null || result.confidence === undefined ? 'No calibrated uncertainty is produced, so none is shown' : 'Model-reported; not a clinical probability'}</em></div><div class="metric-card"><span>Captured image quality (engineering proxy)</span><strong>${audit?.quality ? escapeHtml(formatScore(audit.quality.qualityScore)) : 'Not measured'}</strong><em>Measures brightness and sharpness only — separate from any estimate</em></div><div class="metric-card"><span>Inference mode</span><strong class="metric-small">${escapeHtml(result.model_mode)}</strong><em>${isDemo ? 'Fixed deterministic fixture · no model used' : escapeHtml(result.model_version || 'unversioned model')}</em></div></div>
+    ${result.limitations?.length ? `<ul class="limitations">${result.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
     <div style="margin-top:13px">${safetyBlock(safety)}</div>
-    <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><div><h2 style="font-size:13px;color:var(--navy);margin:0">Counselling & next step</h2><p style="font-size:9px;color:var(--body);margin:4px 0 10px">Generated ${counselMode === 'GEMINI' ? 'by optional server-side Gemini' : 'locally by deterministic language fallback'} · ${escapeHtml(counsel.language || state.language)}</p></div><span class="badge ${counselMode === 'GEMINI' ? 'badge-blue' : 'badge-gray'}">${escapeHtml(counselMode)}</span></div>
+    <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><div><h2 style="font-size:13px;color:var(--navy);margin:0">Counselling & next step</h2><p style="font-size:13px;color:var(--body);margin:4px 0 10px">${counselMode === 'GEMINI' ? 'Wording by optional server-side Gemini; next step and safety note from reviewed local copy' : `Reviewed deterministic copy${counsel.fallback_reason ? ` (AI wording unavailable: ${escapeHtml(counsel.fallback_reason.replaceAll('_', ' ').toLowerCase())})` : ''}`} · ${escapeHtml(counsel.language || state.language)}${counsel.generated_at ? ` · ${escapeHtml(dateLabel(counsel.generated_at))}` : ''}</p></div><span class="badge ${counselMode === 'GEMINI' ? 'badge-blue' : 'badge-gray'}">${escapeHtml(counselMode)}</span></div>
       <div class="language-tabs">${LANGUAGES.map((lang) => `<button class="language-tab ${state.language === lang.id ? 'active' : ''}" data-lang-tab="${lang.id}">${escapeHtml(lang.native)}</button>`).join('')}</div>
       <div class="counsel-box" style="margin-top:10px">${escapeHtml(script)}</div>
       <div class="action-list"><div class="action-line"><span class="check-mark">✓</span><span><strong>Recommended next step:</strong> ${escapeHtml(counsel.recommended_next_step || counsel.action || 'Confirm using appropriate clinical testing and local protocol.')}</span></div><div class="action-line"><span class="check-mark">ⓘ</span><span><strong>Demo tag explanation:</strong> ${escapeHtml(counsel.risk_explanation || counsel.risk || 'Software demonstration tag only; not a clinical risk classification.')}</span></div></div>
       <div class="card-note">${escapeHtml(counsel.safety_note || 'Do not use this demo estimate to change treatment.')}</div></section>
-      <section class="panel panel-pad"><div class="row-between"><div><h2 style="font-size:13px;color:var(--navy);margin:0">Capture & pipeline audit</h2><p style="font-size:9px;color:var(--body);margin:4px 0 11px">On-device visualization only; the image is not stored with the screening record.</p></div><span class="badge badge-blue">LOCAL</span></div>
-        <div class="signal-list"><div class="signal-row"><span>Source</span><strong>${escapeHtml(audit?.source || state.captureSource || 'Not retained in this session')}</strong></div><div class="signal-row"><span>Quality gate</span><strong>${audit?.quality ? `${Math.round(audit.quality.qualityScore * 100)}%` : `${Math.round(result.quality_score * 100)}% · fixture metadata`}</strong></div><div class="signal-row"><span>Region</span><strong>Manual guide · no landmarks</strong></div><div class="signal-row"><span>Image / optical feature upload</span><strong>NEVER</strong></div><div class="signal-row"><span>Server sync</span><strong>${record.sync_status === 'synced' ? 'PSEUDONYMOUS DEMO RECORD' : 'QUEUED LOCALLY'}</strong></div></div>
+      <section class="panel panel-pad"><div class="row-between"><div><h2 style="font-size:13px;color:var(--navy);margin:0">Capture & pipeline audit</h2><p style="font-size:13px;color:var(--body);margin:4px 0 11px">On-device visualization only; the image is not stored with the screening record.</p></div><span class="badge badge-blue">LOCAL</span></div>
+        <div class="signal-list"><div class="signal-row"><span>Source</span><strong>${escapeHtml(audit?.source || state.captureSource || 'Not retained in this session')}</strong></div><div class="signal-row"><span>Quality gate</span><strong>${audit?.quality ? escapeHtml(formatScore(audit.quality.qualityScore)) : 'Not recorded for this record'}</strong></div><div class="signal-row"><span>Region</span><strong>Manual guide · no landmarks</strong></div><div class="signal-row"><span>Image / optical feature upload</span><strong>NEVER</strong></div><div class="signal-row"><span>Server sync</span><strong>${record.sync_status === 'synced' ? 'PSEUDONYMOUS DEMO RECORD' : 'QUEUED LOCALLY'}</strong></div></div>
         <div class="callout" style="margin-top:13px">${patient ? `Local profile: ${escapeHtml(patient.name)} · ${escapeHtml(patient.id)}` : 'Patient name is not sent to the backend.'}. Optical RGB/HSV/Lab values are exploratory and are not used in this result.</div>
         <div class="row" style="margin-top:13px;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" data-action="download-fhir">↓ FHIR JSON</button><button class="btn btn-secondary btn-sm" data-action="create-referral">${escapeHtml(referralLabel)}</button><button class="btn btn-quiet btn-sm" data-action="print-referral">Print / save PDF</button></div>
         ${state.referral?.pdfUrl ? `<div class="callout" style="margin-top:10px">Server PDF ready: <a href="${escapeHtml(state.referral.pdfUrl)}" target="_blank" rel="noopener">Download referral PDF</a></div>` : ''}
@@ -270,11 +336,16 @@ async function renderHistory() {
 
 async function renderSync() {
   const queue = [...await store.getAll('syncQueue')].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  const synced = (await store.getAll('screenings')).filter((record) => record.sync_status === 'synced');
-  return `${pageHead('Offline-first operations', 'Sync queue', 'Sync is idempotent and sends pseudonymous patient IDs plus synthetic fixture metadata. Image pixels and patient names are excluded.', `<button class="btn btn-primary" data-action="sync-now" ${queue.length ? '' : 'disabled'}>⇄ Sync ${queue.length || ''} queued record${queue.length === 1 ? '' : 's'}</button>`)}
+  const all = await store.getAll('screenings');
+  const synced = all.filter((record) => record.sync_status === 'synced');
+  const problems = [...all.filter(isSyncProblem), ...queue.filter((item) => item.last_sync_error && !all.some((r) => r.id === item.id && isSyncProblem(r)))];
+  const problemRows = problems.length ? `<div class="panel panel-pad" style="margin-bottom:14px"><div class="row-between"><h2 class="panel-title">Needs attention</h2><span class="badge badge-red">${problems.length}</span></div>
+    <ul class="problem-list">${problems.map((record) => `<li><strong>${escapeHtml(record.id)}</strong> ${syncBadge(record)}<span>${escapeHtml(record.last_sync_error || '')}${record.sync_attempts ? ` · ${escapeHtml(record.sync_attempts)} attempt(s)` : ''}</span><span class="field-help">${record.sync_status === 'conflict' ? 'The server already has a different record with this ID and kept its copy. Your local copy is unchanged.' : record.sync_status === 'rejected' ? 'The server will not accept this record; retrying will not help. Your local copy is unchanged.' : 'Still queued. It will be sent again on the next sync.'}</span></li>`).join('')}</ul></div>` : '';
+  return `${pageHead('Offline-first operations', 'Sync queue', 'Sync is idempotent and sends pseudonymous patient IDs plus synthetic fixture metadata. Image pixels and patient names are excluded.', `<button class="btn btn-primary" data-action="sync-now" ${queue.length && !state.syncing ? '' : 'disabled'}>⇄ ${state.syncing ? 'Syncing…' : `Sync ${queue.length || ''} queued record${queue.length === 1 ? '' : 's'}`}</button>`)}
     <div class="sync-flow"><div class="sync-stage"><div class="stage-icon">◉</div><strong>Camera / browser</strong><span>Image stays on device</span></div><span class="sync-arrow">→</span><div class="sync-stage"><div class="stage-icon">▣</div><strong>IndexedDB</strong><span>${queue.length} queued locally</span></div><span class="sync-arrow">→</span><div class="sync-stage"><div class="stage-icon">☁</div><strong>FastAPI</strong><span>${state.simulateOffline || !navigator.onLine ? 'Offline mode' : 'Connect when ready'}</span></div></div>
+    ${problemRows}
     <div class="card-grid grid-2"><div class="panel panel-pad"><div class="row-between"><h2 style="margin:0;color:var(--navy);font-size:13px">Pending records</h2><span class="badge ${queue.length ? 'badge-amber' : 'badge-green'}">${queue.length} QUEUED</span></div><div style="margin-top:10px">${queue.length ? recordRows(queue, 'Nothing waiting to sync.') : emptyState('✓', 'Queue is clear', 'New screenings created offline will appear here after save.')}</div></div>
-      <div class="panel panel-pad"><h2 style="margin:0;color:var(--navy);font-size:13px">Connectivity simulation</h2><p style="color:var(--body);font-size:9px">Turn this switch on to force local-only mode even while connected, then test retry-safe sync.</p><label class="toggle"><input type="checkbox" id="simulateOffline" ${state.simulateOffline ? 'checked' : ''}><span class="toggle-track"></span><span>Simulate offline</span></label><hr class="divider"><div class="signal-row"><span>Browser IndexedDB</span><strong id="storageStatus">Checking…</strong></div><div class="signal-row" style="margin-top:8px"><span>Network state</span><strong>${navigator.onLine ? 'BROWSER ONLINE' : 'BROWSER OFFLINE'}</strong></div><div class="signal-row" style="margin-top:8px"><span>Successfully synced locally</span><strong>${synced.length}</strong></div></div></div>
+      <div class="panel panel-pad"><h2 style="margin:0;color:var(--navy);font-size:13px">Connectivity simulation</h2><p style="color:var(--body);font-size:13px">Turn this switch on to force local-only mode even while connected, then test retry-safe sync.</p><label class="toggle"><input type="checkbox" id="simulateOffline" ${state.simulateOffline ? 'checked' : ''}><span class="toggle-track"></span><span>Simulate offline</span></label><hr class="divider"><div class="signal-row"><span>Browser IndexedDB</span><strong id="storageStatus">Checking…</strong></div><div class="signal-row" style="margin-top:8px"><span>Network state</span><strong>${navigator.onLine ? 'BROWSER ONLINE' : 'BROWSER OFFLINE'}</strong></div><div class="signal-row" style="margin-top:8px"><span>Successfully synced locally</span><strong>${synced.length}</strong></div></div></div>
     ${safetyBlock('This sync service is a demo store and is not an approved health-record exchange. Use pseudonymous synthetic records only.')}`;
 }
 
@@ -307,28 +378,81 @@ function renderArchitecture() {
       <div class="panel panel-pad"><h2 style="font-size:13px;color:var(--navy);margin:0 0 10px">Performance evidence</h2><div class="safety-note"><strong>No performance claims are measured.</strong><br>There is no validated model, benchmark harness, target-device trace, latency result, memory profile, or APK build evidence in this prototype. Any future values must be measured on named hardware and labeled by sample size and method.</div><div class="card-note" style="margin-top:11px">Engineering objectives: offline completion, fast quality feedback, low-memory image downsampling, and predictable sync. These are goals, not observed results.</div></div></div>`;
 }
 
+const STATUS_TONE = { VALIDATED_FOR_INTENDED_USE: 'badge-blue', EXPERIMENTAL_RESEARCH_ONLY: 'badge-amber', DISABLED_NO_VALID_MODEL: 'badge-gray', DEMO_SYNTHETIC: 'badge-amber' };
+const statusBadge = (status) => `<span class="badge ${STATUS_TONE[status] || 'badge-gray'}">${escapeHtml(String(status || 'UNKNOWN').replaceAll('_', ' '))}</span>`;
+
 async function renderModel() {
   let status = null;
-  try { status = await (await apiRequest('/api/model/status', { timeout: 1500 })).json(); } catch { /* local facts remain */ }
+  try { status = await (await apiRequest('/api/model/status', { timeout: 1500 })).json(); } catch { /* documented facts below remain */ }
   const metrics = status?.research_baseline?.metrics || {};
-  return `${pageHead('Evidence & limitations', 'Model and dataset audit', 'A candid inventory of the available data, exploratory baseline, and the active synthetic inference path.', `<button class="btn btn-secondary" data-action="refresh-model">↻ Refresh</button>`)}
-    <div class="model-banner"><div>⚠</div><div><strong>Active screening model: none</strong><span>All displayed values are deterministic synthetic fixtures. No estimate is computed from camera pixels, and no TFLite model is approved or bundled.</span></div></div>
-    <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><h2 style="font-size:13px;color:var(--navy);margin:0">Exploratory anemia color baseline</h2><span class="badge badge-amber">RESEARCH ONLY · DISABLED</span></div><p style="color:var(--body);font-size:9px">Five-fold subject-grouped Ridge regression on three precomputed RGB percentage features in a 104-row shared CSV. It is not an image model, external validation, or patient-level evidence.</p>
-      <div class="result-metrics"><div class="metric-card"><span>MAE · exploratory</span><strong>${metrics.mae_g_dl ?? '1.5041'}</strong><em>g/dL internal grouped split</em></div><div class="metric-card"><span>RMSE · exploratory</span><strong>${metrics.rmse_g_dl ?? '1.9392'}</strong><em>g/dL internal grouped split</em></div><div class="metric-card"><span>R² · exploratory</span><strong>${metrics.r2 ?? '0.3987'}</strong><em>Not clinical performance</em></div></div>
-      <div class="card-note" style="margin-top:11px">n=104 rows / 104 groups. Direct names were excluded from model inputs and output artifact. Dataset licensing, consent, provenance, and clinical suitability are unverified. The artifact is never used by the demo.</div></section>
-      <section class="panel panel-pad"><div class="row-between"><h2 style="font-size:13px;color:var(--navy);margin:0">Neonatal jaundice archive</h2><span class="badge badge-gray">NO LABELED MODEL</span></div><p style="color:var(--body);font-size:9px">The inspected ZIP contained 478 JPEGs: 239 Forehead and 239 Sternum. No serum bilirubin label table was found in that archive.</p><div class="kpi-strip"><div><strong>478</strong><span>JPEG images</span></div><div><strong>239 / 239</strong><span>Forehead / sternum</span></div><div><strong>0</strong><span>Label tables found</span></div></div><div class="card-note" style="margin-top:11px">No jaundice model or performance result was trained/reported from these images. The fixture estimates shown in this prototype are synthetic only.</div></section></div>
-    <div class="section-title-row"><div><h2>What is and is not in this build</h2><p>Transparency is a feature, not a footnote.</p></div></div><div class="component-grid"><article class="component-card"><div class="component-icon">✓</div><h3>Present</h3><p>Deterministic demo fixtures, browser quality/feature utilities, local store, FastAPI schemas and SQLite interface.</p></article><article class="component-card"><div class="component-icon">×</div><h3>Not present</h3><p>Approved TFLite model, native Camera2 implementation, bilirubin labels, clinical validation, target-phone benchmark.</p></article><article class="component-card"><div class="component-icon">↗</div><h3>Further review required</h3><p>Drive data consent, license, label provenance, fairness, device camera variation, ethics, and clinical protocol fit.</p></article></div>
-    <div class="card-note" style="margin-top:14px">See <a href="/docs/dataset-audit.md" target="_blank" rel="noopener">dataset audit</a> in the repository. The audit records grouped internal metrics and reproducibility boundaries.</div>
-    ${safetyBlock('The exploratory coefficients are disabled research material. They must never be used to screen or treat a person.')}`;
+  const adapters = status?.adapters || {};
+  const candidates = status?.candidate_models || [];
+  const adapterCard = (kind, title) => {
+    const card = adapters[kind];
+    return `<section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">${title}</h2>${statusBadge(card?.status || 'DISABLED_NO_VALID_MODEL')}</div>
+      <p class="panel-copy">${escapeHtml(card?.reason || 'Status unavailable offline. No validated model is bundled with this build.')}</p>
+      <div class="signal-list"><div class="signal-row"><span>Target</span><strong>${escapeHtml(card ? `${card.target} (${card.unit})` : '—')}</strong></div><div class="signal-row"><span>Model version</span><strong>${escapeHtml(card?.model_version || 'none')}</strong></div><div class="signal-row"><span>Runs on</span><strong>${escapeHtml(card?.inference_location || 'none')}</strong></div></div></section>`;
+  };
+  return `${pageHead('Evidence & limitations', 'Model and dataset audit', 'What models exist, what they were evaluated on, and why none produces a screening value in this build.', `<button class="btn btn-secondary" data-action="refresh-model">↻ Refresh</button>`)}
+    <div class="model-banner"><div>⚠</div><div><strong>Active screening model: none</strong><span>Displayed values are deterministic synthetic fixtures labelled DEMO. No hemoglobin or bilirubin value is computed from camera pixels.</span></div></div>
+    <div class="card-grid grid-2" style="margin-top:14px">${adapterCard('maternal_anemia', 'Maternal anemia adapter')}${adapterCard('neonatal_jaundice', 'Neonatal jaundice adapter')}</div>
+    <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">Ridge colour baseline (104-row CSV)</h2><span class="badge badge-amber">RESEARCH ONLY</span></div><p class="panel-copy">Five-fold cross-validation on three precomputed colour percentages, re-run during the audit: the figures reproduce. Every subject name is unique, so grouped CV adds no leakage protection; predicting the mean scores MAE 1.95 g/dL.</p>
+      <div class="result-metrics"><div class="metric-card"><span>MAE</span><strong>${escapeHtml(metrics.mae_g_dl ?? '1.5041')}</strong><em>g/dL · internal CV</em></div><div class="metric-card"><span>RMSE</span><strong>${escapeHtml(metrics.rmse_g_dl ?? '1.9392')}</strong><em>g/dL · internal CV</em></div><div class="metric-card"><span>R²</span><strong>${escapeHtml(metrics.r2 ?? '0.3987')}</strong><em>Not clinical performance</em></div></div>
+      <div class="card-note" style="margin-top:11px">The pipeline that produced the CSV features is undocumented, so app camera features are not valid inputs. 22 rows labelled non-anaemic have Hb below WHO sex-specific cut-offs, and 2 rows have Hb below 5 g/dL.</div></section>
+      <section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">Notebook image experiments</h2><span class="badge badge-gray">NOT USABLE</span></div><p class="panel-copy">Eyes-defy-anemia data (Italy/India), patient-level split. No model file was exported to this project.</p>
+      <div class="signal-list"><div class="signal-row"><span>MobileNetV3-Small → Hb</span><strong>MAE 1.838 · R² −0.197</strong></div><div class="signal-row"><span>Colour random forest → Hb</span><strong>MAE 2.053 · R² −0.345</strong></div><div class="signal-row"><span>Test patients</span><strong>22 / 10</strong></div><div class="signal-row"><span>Unreadable images</span><strong>110 of 398</strong></div></div>
+      <div class="card-note" style="margin-top:11px">A negative R² means worse than always predicting the average Hb.</div></section></div>
+    <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">Neonatal jaundice archive</h2><span class="badge badge-gray">NO LABELS</span></div><p class="panel-copy">478 JPEGs (239 forehead / 239 sternum) with numeric filenames and no serum-bilirubin table. No bilirubin model can be trained or evaluated, and none is shown.</p><div class="kpi-strip"><div><strong>478</strong><span>Images</span></div><div><strong>0</strong><span>Label files</span></div><div><strong>0</strong><span>Models</span></div></div></section>
+      <section class="panel panel-pad"><h2 class="panel-title">All candidate models</h2>${candidates.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Candidate</th><th>Status</th><th>Note</th></tr></thead><tbody>${candidates.map((c) => `<tr><td class="table-strong">${escapeHtml(c.id)}</td><td>${statusBadge(c.status)}</td><td>${escapeHtml(c.note)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="panel-copy">Connect to the API to load the candidate list.</p>'}</section></div>
+    <div class="card-note" style="margin-top:14px">Details: <a href="/docs/ML_MODEL_CARD.md" target="_blank" rel="noopener">model card</a> · <a href="/docs/DATA_PROVENANCE.md" target="_blank" rel="noopener">data provenance and manifest</a>.</div>
+    ${safetyBlock('Research coefficients and notebook results must never be used to screen or treat a person.')}`;
+}
+
+function usageValue(value, suffix = '') {
+  return value === null || value === undefined ? '<span class="unavailable">Unavailable</span>' : `${escapeHtml(value)}${suffix}`;
+}
+
+function renderUsage() {
+  const report = state.usageReport;
+  const tokens = report?.tokens_provider_reported || {};
+  const avg = report?.avg_tokens_per_successful_request || {};
+  const latency = report?.latency_ms || {};
+  const body = report ? `<div class="card-grid grid-4" style="margin-top:14px">
+      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Provider requests</span></div><div class="stat-number">${report.provider_requests}</div><div class="stat-caption">${report.provider_successful} successful · ${report.provider_failed_or_rejected} failed or rejected</div></div>
+      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Input tokens</span></div><div class="stat-number">${usageValue(tokens.prompt)}</div><div class="stat-caption">Provider-reported</div></div>
+      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Output tokens</span></div><div class="stat-number">${usageValue(tokens.output_candidates)}</div><div class="stat-caption">Thinking tokens: ${usageValue(tokens.thoughts)}</div></div>
+      <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Mean latency</span></div><div class="stat-number">${usageValue(latency.mean, ' ms')}</div><div class="stat-caption">p50 ${usageValue(latency.p50, ' ms')} · max ${usageValue(latency.max, ' ms')}</div></div></div>
+    <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><h2 class="panel-title">Totals and averages</h2><div class="signal-list">
+      <div class="signal-row"><span>Total tokens</span><strong>${usageValue(tokens.total)}</strong></div><div class="signal-row"><span>Cached tokens</span><strong>${usageValue(tokens.cached)}</strong></div>
+      <div class="signal-row"><span>Avg total tokens per successful request</span><strong>${usageValue(avg.total)}</strong></div><div class="signal-row"><span>Requests missing usage metadata</span><strong>${report.requests_missing_usage_metadata}</strong></div>
+      <div class="signal-row"><span>Served without a provider call</span><strong>${report.served_without_provider_call}</strong></div><div class="signal-row"><span>Estimated cost</span><strong><span class="unavailable">Not computed — no verified pricing configured</span></strong></div></div></section>
+      <section class="panel panel-pad"><h2 class="panel-title">Models, period and outcomes</h2><div class="signal-list">
+      <div class="signal-row"><span>Configured model IDs</span><strong>${escapeHtml(report.models.join(', ') || '—')}</strong></div><div class="signal-row"><span>Provider-reported versions</span><strong>${escapeHtml(report.model_versions_reported.join(', ') || '—')}</strong></div>
+      <div class="signal-row"><span>Period</span><strong>${escapeHtml(report.period.since ? dateLabel(report.period.since) : '—')} → ${escapeHtml(report.period.until ? dateLabel(report.period.until) : '—')}</strong></div>
+      ${Object.entries(report.outcomes).map(([code, count]) => `<div class="signal-row"><span>${escapeHtml(code)}</span><strong>${count}</strong></div>`).join('')}</div></section></div>
+    <div class="card-note" style="margin-top:14px">${report.notes.map(escapeHtml).join(' ')}</div>` : (state.usageError ? `<div class="safety-note danger" style="margin-top:14px">${escapeHtml(state.usageError)}</div>` : '');
+  return `${pageHead('Operator telemetry', 'AI usage report', 'Aggregate Gemini usage for this server. No prompts, outputs, patient data, or per-person interactions are stored or shown.')}
+    <div class="panel panel-pad"><form id="usageForm" class="row" style="flex-wrap:wrap;align-items:flex-end"><div class="form-field" style="flex:1;min-width:220px"><label for="adminToken">Admin token</label><input id="adminToken" class="input input-lg" type="password" autocomplete="off" required minlength="16" placeholder="Set by the server operator"></div><div class="form-field"><label for="usageSince">From (optional)</label><input id="usageSince" class="input input-lg" type="date"></div><button class="btn btn-primary" type="submit">Load report</button></form><p class="field-help" style="margin-top:8px">The token is used for this request only and sent as a bearer header to <code>/api/admin/usage</code>. It is not stored and it is not the Gemini key.</p></div>${body}`;
+}
+
+async function loadUsage(form) {
+  const token = form.querySelector('#adminToken').value.trim();
+  const since = form.querySelector('#usageSince').value;
+  state.usageReport = null; state.usageError = '';
+  try {
+    const query = since ? `?since=${encodeURIComponent(`${since}T00:00:00Z`)}` : '';
+    state.usageReport = await (await apiRequest(`/api/admin/usage${query}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 6000 })).json();
+  } catch (error) { state.usageError = `${error.message}${error.code ? ` (${error.code})` : ''}`; }
+  await render();
 }
 
 async function renderSettings() {
   const storage = await store.localStoreStatus();
   return `${pageHead('Device & worker settings', 'Settings', 'Worker profile and app preferences are stored locally. No Gemini key is accepted by or included in the browser.', `<button class="btn btn-secondary" data-action="export-backup">↓ Export local backup</button>`)}
     <div class="card-grid grid-2"><section class="panel panel-pad"><h2 style="font-size:13px;color:var(--navy);margin:0 0 12px">Worker profile · local only</h2><form id="settingsForm"><div class="form-grid"><div class="form-field"><label for="workerName">Display name</label><input id="workerName" class="input" name="workerName" maxlength="80" value="${escapeHtml(state.workerName)}" autocomplete="name"></div><div class="form-field"><label for="phcName">PHC / location label</label><input id="phcName" class="input" name="phc" maxlength="80" value="${escapeHtml(state.phc)}"></div><div class="form-field full"><label for="languageSelect">Interface / counselling language</label><select id="languageSelect" class="select" name="language">${LANGUAGES.map((item) => `<option value="${item.id}" ${state.language === item.id ? 'selected' : ''}>${escapeHtml(item.label)} · ${escapeHtml(item.native)}</option>`).join('')}</select></div></div><div class="row" style="margin-top:14px"><button class="btn btn-primary" type="submit">Save local settings</button></div></form>
-      <hr class="divider"><label class="toggle"><input type="checkbox" id="simulateOfflineSettings" ${state.simulateOffline ? 'checked' : ''}><span class="toggle-track"></span><span>Simulate offline mode</span></label><p style="font-size:8px;color:var(--muted);margin:6px 0 0">Affects app network requests only; does not disable your device network.</p></section>
+      <hr class="divider"><label class="toggle"><input type="checkbox" id="simulateOfflineSettings" ${state.simulateOffline ? 'checked' : ''}><span class="toggle-track"></span><span>Simulate offline mode</span></label><p style="font-size:12px;color:var(--muted);margin:6px 0 0">Affects app network requests only; does not disable your device network.</p></section>
       <section class="panel panel-pad"><h2 style="font-size:13px;color:var(--navy);margin:0 0 10px">Privacy & storage</h2><div class="signal-list"><div class="signal-row"><span>Browser store</span><strong>${storage.indexedDb ? 'INDEXEDDB' : 'LOCALSTORAGE FALLBACK'}</strong></div><div class="signal-row"><span>Store name</span><strong>${escapeHtml(storage.name)}</strong></div><div class="signal-row"><span>Camera/photo upload</span><strong>DISABLED</strong></div><div class="signal-row"><span>Gemini key</span><strong>SERVER ENV ONLY</strong></div><div class="signal-row"><span>Raw Drive data included</span><strong>NO</strong></div></div><div class="callout" style="margin-top:12px">If enabled by the operator, the Gemini API key is read from the backend environment variable <code>GEMINI_API_KEY</code>. Never paste a key into this screen, a client bundle, or the chat.</div><div class="row" style="margin-top:15px"><button class="btn btn-danger-soft" data-action="clear-local-data">Clear all local app data</button></div></section></div>
-    <div class="panel panel-pad" style="margin-top:14px"><h2 style="font-size:13px;color:var(--navy);margin:0 0 7px">Safety and support</h2><p style="font-size:9px;color:var(--body);margin:0 0 8px">This is a hackathon prototype—not a medical device or approved EHR. Do not use synthetic estimates for care decisions. Confirm with appropriate testing and qualified clinicians.</p><div class="row" style="flex-wrap:wrap"><button class="btn btn-secondary btn-sm" data-page="architecture">Architecture & boundary</button><button class="btn btn-secondary btn-sm" data-page="model">Dataset audit & evidence</button><button class="btn btn-secondary btn-sm" data-page="sync">Sync queue</button></div></div>`;
+    <div class="panel panel-pad" style="margin-top:14px"><h2 style="font-size:13px;color:var(--navy);margin:0 0 7px">Safety and support</h2><p style="font-size:13px;color:var(--body);margin:0 0 8px">This is a hackathon prototype—not a medical device or approved EHR. Do not use synthetic estimates for care decisions. Confirm with appropriate testing and qualified clinicians.</p><div class="row" style="flex-wrap:wrap"><button class="btn btn-secondary btn-sm" data-page="architecture">Architecture & boundary</button><button class="btn btn-secondary btn-sm" data-page="model">Dataset audit & evidence</button><button class="btn btn-secondary btn-sm" data-page="sync">Sync queue</button></div></div>`;
 }
 
 async function render() {
@@ -346,6 +470,7 @@ async function render() {
       case 'architecture': content.innerHTML = renderArchitecture(); break;
       case 'model': content.innerHTML = await renderModel(); break;
       case 'settings': content.innerHTML = await renderSettings(); break;
+      case 'usage': content.innerHTML = renderUsage(); break;
       default: state.page = 'home'; content.innerHTML = await renderHome();
     }
     if (state.page === 'sync') refreshStorageStatus();
@@ -376,6 +501,7 @@ function startNew(type = null, patientId = null) {
   state.screeningType = type || 'maternal_anemia';
   if (patientId) state.selectedPatientId = patientId;
   else selectDemoPatientForType(state.screeningType);
+  contextFromPatient();
   state.selectedCaseId = '';
   state.previewDataUrl = ''; state.imageData = null; state.captureSource = '';
   state.syntheticImage = false; state.regionConfirmed = false; state.quality = null;
@@ -472,12 +598,15 @@ async function runSelectedScreening() {
   if (!state.syntheticImage) { toast('A real camera/import image is for local quality/features only. Select the abstract synthetic image for a disconnected fixture demo.', 'error'); return; }
   if (!state.quality?.ready) { toast('Complete the local quality gate before continuing.', 'warning'); return; }
   if (!state.selectedCaseId) { toast('Select a named synthetic demo case first.', 'warning'); return; }
+  if (!contextIsValid()) { toast('Return to step 1 and complete the screening details.', 'warning'); return; }
   const result = runDemoInference(state.screeningType, state.selectedCaseId);
+  // Client-generated id doubles as the idempotency key for create, sync, and retries.
   const id = `scr-${uid()}`;
+  const context = screeningContext(patient);
   const recordBase = {
-    id, patient: { patient_id: patient.id, demo: true }, result,
+    id, patient: { patient_id: patient.id, demo: true }, result, context,
     worker_id: 'demo-worker', phc: 'Demo PHC', village: null,
-    created_at: result.generated_at, sync_status: 'queued', fhir_bundle: null,
+    created_at: result.generated_at, id_origin: 'client', sync_status: 'queued', fhir_bundle: null,
   };
   let record = recordBase;
   let synced = false;
@@ -485,10 +614,14 @@ async function runSelectedScreening() {
     try {
       const response = await apiRequest('/api/screenings', { method: 'POST', body: JSON.stringify({
         id, patient: { patient_id: patient.id, demo: true }, screening_type: state.screeningType,
-        case_id: state.selectedCaseId, worker_id: 'demo-worker', phc: 'Demo PHC',
+        case_id: state.selectedCaseId, context, worker_id: 'demo-worker', phc: 'Demo PHC',
       }), timeout: 5000 });
       record = await response.json(); synced = true;
-    } catch { /* Save locally and queue; network/API failure must not block the demonstration. */ }
+    } catch (error) {
+      // Network/timeout/5xx: save locally and queue. A definitive rejection would fail again on sync, so stop here.
+      if (error.retryable === false) { toast(`The server rejected this screening: ${error.message}`, 'error'); return; }
+      recordBase.last_sync_error = error.message; recordBase.sync_attempts = 1;
+    }
   }
   record.sync_status = synced ? 'synced' : 'queued';
   record.capture_audit = state.captureAudit ? {
@@ -517,11 +650,16 @@ async function loadCounselling(record) {
   state.counselling = fallback; state.lastCounselLanguage = language;
   try {
     const person = state.patients.find((item) => item.id === record.patient?.patient_id);
-    const response = await apiRequest('/api/counselling', { method: 'POST', timeout: 7000, body: JSON.stringify({
+    const context = record.context || {};
+    const response = await apiRequest('/api/counselling', { method: 'POST', timeout: 14000, body: JSON.stringify({
       screening_type: record.result.screening_type, estimate: record.result.estimate, unit: record.result.unit,
-      risk_category: record.result.risk_category, confidence: record.result.confidence, quality_score: record.result.quality_score,
-      language, pregnancy: person?.pregnancy ?? null, gestational_week: person?.gestationalWeek || null,
-      infant_age_hours: person?.infantAgeHours ?? null,
+      risk_category: record.result.risk_category, confidence: record.result.confidence ?? null, quality_score: record.result.quality_score ?? null,
+      provenance: provenanceOf(record.result), language,
+      pregnancy: context.pregnancy ?? person?.pregnancy ?? null,
+      gestational_week: context.gestational_week ?? (person?.gestationalWeek || null),
+      infant_age_hours: context.infant_age_hours ?? person?.infantAgeHours ?? null,
+      // Same record + language → same key, so a retry never triggers a second provider call.
+      request_id: `cns-${record.id}-${language}`.slice(0, 96),
     }) });
     const data = await response.json();
     if (state.page === 'result' && state.lastRecord?.id === record.id && state.language === language) { state.counselling = data; await render(); }
@@ -570,31 +708,62 @@ async function syncNow() {
   const queue = await store.getAll('syncQueue');
   if (!queue.length) { toast('There are no queued records to sync.'); return; }
   if (state.simulateOffline || !navigator.onLine) { toast('Offline mode is active. The queue remains safely on this device.', 'warning'); return; }
-  let sent = 0;
+  if (state.syncing) return; // prevent overlapping sync runs from double-sending
+  state.syncing = true;
+  const tally = { synced: 0, rejected: 0, conflict: 0, failed: 0 };
+  const markLocal = async (id, patch) => {
+    const saved = await store.getOne('screenings', id);
+    if (saved) await store.put('screenings', { ...saved, ...patch });
+  };
   try {
     for (let offset = 0; offset < queue.length; offset += 100) {
-      const batch = queue.slice(offset, offset + 100).map((record) => ({
-        id: record.id, patient: record.patient, result: record.result, worker_id: record.worker_id,
-        phc: record.phc, village: null, created_at: record.created_at, sync_status: 'queued', fhir_bundle: null,
-      }));
-      const response = await apiRequest('/api/sync', { method: 'POST', body: JSON.stringify({ records: batch }), timeout: 10000 });
-      const result = await response.json(); sent += result.accepted + result.duplicate;
-      for (const item of queue.slice(offset, offset + 100)) {
-        await store.remove('syncQueue', item.id);
-        const saved = await store.getOne('screenings', item.id);
-        if (saved) { saved.sync_status = 'synced'; await store.put('screenings', saved); }
+      const items = queue.slice(offset, offset + 100);
+      const batch = items.map((record) => minimalServerRecord(record));
+      let response;
+      try {
+        response = await (await apiRequest('/api/sync', { method: 'POST', body: JSON.stringify({ records: batch }), timeout: 10000 })).json();
+      } catch (error) {
+        // Transport/server failure: nothing is deleted. Each item keeps its queue entry and records the attempt.
+        const now = new Date().toISOString();
+        for (const item of items) {
+          const patch = { sync_status: 'queued', last_sync_error: error.message, last_attempt_at: now, sync_attempts: (item.sync_attempts || 0) + 1 };
+          await store.put('syncQueue', { ...item, ...patch }); await markLocal(item.id, patch);
+        }
+        tally.failed += items.length;
+        if (error.retryable === false) continue;
+        break; // offline/timeout: stop and retry later rather than hammering the server
+      }
+      const byId = new Map((response.results || []).map((entry) => [entry.id, entry]));
+      for (const item of items) {
+        const entry = byId.get(item.id) || (response.synced_ids?.includes(item.id) ? { status: 'accepted' } : null);
+        if (!entry) { tally.failed += 1; continue; } // not acknowledged: keep queued
+        if (entry.status === 'accepted' || entry.status === 'duplicate') {
+          await store.remove('syncQueue', item.id);
+          await markLocal(item.id, { sync_status: 'synced', last_sync_error: null, synced_at: response.server_time });
+          tally.synced += 1;
+        } else {
+          // rejected/conflict will not succeed on retry: leave the local record, flag it, and stop resending.
+          await store.remove('syncQueue', item.id);
+          await markLocal(item.id, { sync_status: entry.status, last_sync_error: entry.error?.message || entry.status });
+          tally[entry.status] += 1;
+        }
       }
     }
-    toast(`${sent} synthetic record(s) synchronized. No photos or patient names were sent.`);
-  } catch (error) { toast(`Sync paused; queued records remain local. ${error.message}`, 'warning'); }
+  } finally { state.syncing = false; }
+  const problems = tally.rejected + tally.conflict + tally.failed;
+  toast(problems
+    ? `${tally.synced} synced · ${tally.failed} still queued · ${tally.rejected} rejected · ${tally.conflict} conflict. Review the sync queue.`
+    : `${tally.synced} record(s) synchronized. No photos or patient names were sent.`, problems ? 'warning' : 'success');
   updateNetworkChip(); await render();
 }
 
 function minimalServerRecord(record) {
+  // Only contract fields leave the device: no names, capture audit, local sync metadata, or local FHIR bundle.
   return {
-    id: record.id, patient: record.patient, result: record.result, worker_id: record.worker_id || 'demo-worker',
-    phc: record.phc || 'Demo PHC', village: null, created_at: record.created_at,
-    sync_status: record.sync_status || 'queued', fhir_bundle: null,
+    id: record.id, patient: { patient_id: record.patient.patient_id, demo: record.patient.demo }, result: record.result,
+    context: record.context || null, worker_id: record.worker_id || 'demo-worker',
+    phc: record.phc || 'Demo PHC', village: null, created_at: record.created_at, id_origin: record.id_origin || 'client',
+    sync_status: record.sync_status === 'synced' ? 'synced' : 'queued', fhir_bundle: null,
   };
 }
 
@@ -607,6 +776,7 @@ async function createReferral() {
   const referral = {
     id, screening_id: record.id, screening: record, worker_name: state.workerName,
     language, counselling: counsel.counselling_script || counsel.script || '',
+    counselling_mode: counsel.mode === 'GEMINI' ? 'GEMINI' : 'LOCAL_FALLBACK', reason: 'SCREENING_CONFIRMATION',
     next_step: counsel.recommended_next_step || counsel.action || 'Confirm with appropriate clinical testing and local protocol.',
     created_at: new Date().toISOString(), pdfUrl: '',
   };
@@ -614,7 +784,7 @@ async function createReferral() {
   try {
     const response = await apiRequest('/api/referrals', { method: 'POST', body: JSON.stringify({
       id, screening: minimalServerRecord(record), worker_name: state.workerName, language,
-      counselling: referral.counselling, next_step: referral.next_step,
+      counselling: referral.counselling, counselling_mode: referral.counselling_mode, reason: referral.reason, next_step: referral.next_step,
     }), timeout: 7000 });
     const created = await response.json(); referral.pdfUrl = created.pdf_url; referral.serverCreated = true;
     await store.put('referrals', referral);
@@ -634,7 +804,7 @@ function printReferral() {
   popup.opener = null;
   const patient = state.patients.find((item) => item.id === record.patient?.patient_id);
   const counsel = state.counselling || localCounsel(record.result.screening_type, state.language, record.result.risk_category);
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>AbhayNayan · Referral Brief</title><style>body{font:14px/1.6 Arial,sans-serif;color:#18323a;max-width:760px;margin:34px auto;padding:0 22px}h1{color:#123642;font-size:23px;margin-bottom:3px}.sub{color:#657c81;font-size:12px;margin:0 0 22px}.grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #dce7e8}.item{padding:10px;border-bottom:1px solid #dce7e8}.label{display:block;color:#73888d;font-size:11px}.value{font-weight:700}.notice{margin-top:22px;padding:14px;background:#fff7e8;border-left:4px solid #d18b24}.foot{margin-top:18px;color:#657c81;font-size:11px}@media print{button{display:none}body{margin:0 auto}}</style></head><body><h1>ABHAYNAYAN · SCREENING REFERRAL BRIEF</h1><p class="sub">Prototype-generated summary for clinician review · not a diagnosis</p><div class="grid"><div class="item"><span class="label">Patient ID</span><span class="value">${escapeHtml(record.patient?.patient_id || patient?.id)}</span></div><div class="item"><span class="label">Patient name · local only</span><span class="value">${escapeHtml(patient?.name || 'Not recorded')}</span></div><div class="item"><span class="label">Screening workflow</span><span class="value">${escapeHtml(typeLabel(record.result.screening_type))}</span></div><div class="item"><span class="label">Date</span><span class="value">${escapeHtml(dateLabel(record.created_at))}</span></div><div class="item"><span class="label">Synthetic estimate · not a lab result</span><span class="value">${escapeHtml(localResultLabel(record))}</span></div><div class="item"><span class="label">Demo tag</span><span class="value">${escapeHtml(record.result.risk_category)}</span></div><div class="item"><span class="label">Model mode</span><span class="value">${escapeHtml(record.result.model_mode)} · fixed fixture</span></div><div class="item"><span class="label">Worker / PHC</span><span class="value">${escapeHtml(state.workerName)} · ${escapeHtml(state.phc)}</span></div></div><h2>Recommended next step</h2><p>${escapeHtml(counsel.recommended_next_step || counsel.action || 'Confirm with appropriate clinical testing and local protocol.')}</p><h2>Counselling summary</h2><p>${escapeHtml(counsel.counselling_script || counsel.script || '')}</p><div class="notice"><strong>Safety notice</strong><br>${escapeHtml(record.result.safety_note)} Do not use this demo value to diagnose, triage, delay care, or change treatment. Confirm with appropriate clinical testing and local protocol.</div><p class="foot">No camera image is included in this document. This prototype is not an approved health record or medical device.</p><button onclick="window.print()">Print / Save as PDF</button></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>AbhayNayan · Referral Brief</title><style>body{font:14px/1.6 Arial,sans-serif;color:#18323a;max-width:760px;margin:34px auto;padding:0 22px}h1{color:#123642;font-size:23px;margin-bottom:3px}.sub{color:#657c81;font-size:14px;margin:0 0 22px}.grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #dce7e8}.item{padding:10px;border-bottom:1px solid #dce7e8}.label{display:block;color:#73888d;font-size:14px}.value{font-weight:700}.notice{margin-top:22px;padding:14px;background:#fff7e8;border-left:4px solid #d18b24}.foot{margin-top:18px;color:#657c81;font-size:14px}@media print{button{display:none}body{margin:0 auto}}</style></head><body><h1>ABHAYNAYAN · SCREENING REFERRAL BRIEF</h1><p class="sub">Prototype-generated summary for clinician review · not a diagnosis</p><div class="grid"><div class="item"><span class="label">Patient ID</span><span class="value">${escapeHtml(record.patient?.patient_id || patient?.id)}</span></div><div class="item"><span class="label">Patient name · local only</span><span class="value">${escapeHtml(patient?.name || 'Not recorded')}</span></div><div class="item"><span class="label">Screening workflow</span><span class="value">${escapeHtml(typeLabel(record.result.screening_type))}</span></div><div class="item"><span class="label">Date</span><span class="value">${escapeHtml(dateLabel(record.created_at))}</span></div><div class="item"><span class="label">${escapeHtml(PROVENANCE[provenanceOf(record.result)].label)} · not a lab result</span><span class="value">${escapeHtml(localResultLabel(record))}</span></div>${record.context?.infant_age_hours !== null && record.context?.infant_age_hours !== undefined ? `<div class="item"><span class="label">Newborn age (hours)</span><span class="value">${escapeHtml(record.context.infant_age_hours)}</span></div>` : ''}<div class="item"><span class="label">Demo tag</span><span class="value">${escapeHtml(record.result.risk_category)}</span></div><div class="item"><span class="label">Result provenance · mode</span><span class="value">${escapeHtml(provenanceOf(record.result))} · ${escapeHtml(record.result.model_mode)} · ${escapeHtml(record.result.model_version || 'no model version')}</span></div><div class="item"><span class="label">Result generated</span><span class="value">${escapeHtml(dateLabel(record.result.generated_at))}</span></div><div class="item"><span class="label">Counselling source</span><span class="value">${counsel.mode === 'GEMINI' ? 'Gemini wording + reviewed safety copy' : 'Reviewed deterministic copy'}</span></div><div class="item"><span class="label">Brief printed</span><span class="value">${escapeHtml(dateLabel(new Date().toISOString()))}</span></div><div class="item"><span class="label">Worker / PHC</span><span class="value">${escapeHtml(state.workerName)} · ${escapeHtml(state.phc)}</span></div></div><h2>Recommended next step</h2><p>${escapeHtml(counsel.recommended_next_step || counsel.action || 'Confirm with appropriate clinical testing and local protocol.')}</p><h2>Counselling summary</h2><p>${escapeHtml(counsel.counselling_script || counsel.script || '')}</p><div class="notice"><strong>Safety notice</strong><br>${escapeHtml(record.result.safety_note)} Do not use this demo value to diagnose, triage, delay care, or change treatment. Confirm with appropriate clinical testing and local protocol.</div><p class="foot">No camera image is included in this document. This prototype is not an approved health record or medical device.</p><button onclick="window.print()">Print / Save as PDF</button></body></html>`;
   popup.document.open(); popup.document.write(html); popup.document.close();
 }
 
@@ -668,6 +838,7 @@ async function handleClick(event) {
   if (target.dataset.task) {
     state.screeningType = target.dataset.task;
     selectDemoPatientForType(state.screeningType);
+    contextFromPatient();
     state.selectedCaseId = ''; await render(); return;
   }
   if (target.dataset.caseId) { state.selectedCaseId = target.dataset.caseId; await render(); return; }
@@ -686,6 +857,7 @@ async function handleClick(event) {
     case 'wizard-next':
       if (state.wizardStep === 1) {
         if (!selectedPatient() || !state.screeningType) { toast('Select a local patient and workflow.', 'warning'); break; }
+        if (!contextIsValid()) { toast(state.screeningType === 'neonatal_jaundice' ? 'Enter the newborn’s age in whole hours (0–8760).' : 'Gestational week must be a whole number from 1 to 45, or blank.', 'warning'); break; }
         state.wizardStep = 2; await render();
       } else if (state.wizardStep === 2) {
         if (!state.quality?.ready) { toast('The image quality gate has not passed.', 'warning'); break; }
@@ -718,7 +890,7 @@ async function handleClick(event) {
 
 async function handleChange(event) {
   const target = event.target;
-  if (target.id === 'patientSelect') { state.selectedPatientId = target.value; await render(); return; }
+  if (target.id === 'patientSelect') { state.selectedPatientId = target.value; contextFromPatient(); await render(); return; }
   if (target.id === 'regionConfirm') {
     state.regionConfirmed = target.checked;
     if (state.imageData) {
@@ -735,6 +907,7 @@ async function handleChange(event) {
 
 async function handleSubmit(event) {
   if (event.target.id === 'patientModalForm') { event.preventDefault(); await savePatientForm(event.target); return; }
+  if (event.target.id === 'usageForm') { event.preventDefault(); await loadUsage(event.target); return; }
   if (event.target.id === 'settingsForm') {
     event.preventDefault(); const data = new FormData(event.target);
     state.workerName = String(data.get('workerName') || 'Demo ASHA Worker').trim().slice(0, 80) || 'Demo ASHA Worker';
@@ -755,12 +928,23 @@ async function initialize() {
     await store.ensureDemoPatient('newborn');
     state.patients = await store.getAll('patients');
     state.selectedPatientId = state.patients.find((person) => person.isDemo && person.demoKind === 'maternal')?.id || state.patients.find((person) => person.isDemo)?.id || state.patients[0]?.id || '';
+    contextFromPatient();
   } catch (error) { console.error('Local store initialization failed:', error); }
   document.addEventListener('click', (event) => { void handleClick(event); });
   document.addEventListener('change', (event) => { void handleChange(event); });
   document.addEventListener('submit', (event) => { void handleSubmit(event); });
   let historySearchTimer;
   document.addEventListener('input', (event) => {
+    if (event.target.id === 'ctxInfantAge' || event.target.id === 'ctxGestWeek') {
+      // Update in place (no re-render) so the field keeps focus while typing.
+      const key = event.target.id === 'ctxInfantAge' ? 'infantAgeHours' : 'gestationalWeek';
+      state.context[key] = parseIntInput(event.target.value);
+      const valid = contextIsValid();
+      event.target.setAttribute('aria-invalid', String(!valid));
+      const next = $('[data-action="wizard-next"]');
+      if (next) next.disabled = !(selectedPatient() && valid);
+      return;
+    }
     if (event.target.id !== 'historySearch') return;
     state.search = event.target.value;
     const cursor = event.target.selectionStart;

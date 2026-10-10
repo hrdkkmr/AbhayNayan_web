@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from datetime import datetime, timezone
 from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -11,18 +13,25 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+# Devanagari-capable fonts first (Hindi/Bhojpuri counselling text), then DejaVu, then built-in Helvetica.
+FONT_CANDIDATES = [
+    (os.getenv('ABHAYNAYAN_PDF_FONT', ''), os.getenv('ABHAYNAYAN_PDF_FONT_BOLD', '')),
+    ('/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf', '/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf'),
+    ('C:/Windows/Fonts/Nirmala.ttf', 'C:/Windows/Fonts/NirmalaB.ttf'),
+    ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
+]
 BODY_FONT = 'Helvetica'
 BOLD_FONT = 'Helvetica-Bold'
-try:
-    if Path(FONT).exists() and Path(FONT_BOLD).exists():
-        pdfmetrics.registerFont(TTFont('AN', FONT))
-        pdfmetrics.registerFont(TTFont('AN-Bold', FONT_BOLD))
-        pdfmetrics.registerFontFamily('AN', normal='AN', bold='AN-Bold', italic='AN', boldItalic='AN-Bold')
-        BODY_FONT, BOLD_FONT = 'AN', 'AN-Bold'
-except Exception:
-    pass
+for _regular, _bold in FONT_CANDIDATES:
+    try:
+        if _regular and _bold and Path(_regular).exists() and Path(_bold).exists():
+            pdfmetrics.registerFont(TTFont('AN', _regular))
+            pdfmetrics.registerFont(TTFont('AN-Bold', _bold))
+            pdfmetrics.registerFontFamily('AN', normal='AN', bold='AN-Bold', italic='AN', boldItalic='AN-Bold')
+            BODY_FONT, BOLD_FONT = 'AN', 'AN-Bold'
+            break
+    except Exception:
+        continue
 
 NAVY = colors.HexColor('#123642')
 TEAL = colors.HexColor('#0b817d')
@@ -56,7 +65,13 @@ def build_referral_pdf(data: dict) -> bytes:
     screening = data.get('screening', {})
     result = screening.get('result', {})
     stype = result.get('screening_type', 'maternal_anemia')
-    measure = 'Estimated Hb screening value' if stype == 'maternal_anemia' else 'Estimated bilirubin screening value'
+    provenance = result.get('provenance') or 'DEMO_SYNTHETIC'
+    measure = {'DEMO_SYNTHETIC': 'Synthetic demo value (not measured)',
+               'EXPERIMENTAL_RESEARCH_ONLY': 'Experimental research estimate (not validated)'}.get(
+        provenance, 'Estimated Hb screening value' if stype == 'maternal_anemia' else 'Estimated bilirubin screening value')
+    context = screening.get('context') or {}
+    confidence = result.get('confidence')
+    quality = result.get('quality_score')
     rows = [
         [Paragraph('Patient ID', s['label']), Paragraph(_esc(screening.get('patient', {}).get('patient_id', 'Not supplied')), s['value'])],
         [Paragraph('Screening type', s['label']), Paragraph(_esc('Maternal anemia' if stype == 'maternal_anemia' else 'Neonatal jaundice'), s['value'])],
@@ -64,9 +79,21 @@ def build_referral_pdf(data: dict) -> bytes:
         [Paragraph('Worker / PHC', s['label']), Paragraph(_esc(f"{data.get('worker_name','Demo ASHA Worker')} · {screening.get('phc','Demo PHC')}"), s['value'])],
         [Paragraph(measure, s['label']), Paragraph(_esc(f"{result.get('estimate','—')} {result.get('unit','')}"), s['value'])],
         [Paragraph('Prototype tag', s['label']), Paragraph(_esc(result.get('risk_category','DEMO_ONLY')), s['value'])],
-        [Paragraph('Confidence / image quality', s['label']), Paragraph(_esc(f"{float(result.get('confidence',0))*100:.0f}% / {float(result.get('quality_score',0))*100:.0f}%"), s['value'])],
-        [Paragraph('Model mode', s['label']), Paragraph(_esc(result.get('model_mode','DEMO')), s['value'])],
+        [Paragraph('Confidence / image quality', s['label']), Paragraph(_esc(
+            f"{'Not available' if confidence is None else f'{float(confidence) * 100:.0f}%'} / "
+            f"{'Not measured' if quality is None else f'{float(quality) * 100:.0f}%'}"), s['value'])],
+        [Paragraph('Result provenance', s['label']), Paragraph(_esc(f"{provenance} · mode {result.get('model_mode', 'DEMO')} · {result.get('model_version') or 'no model version'}"), s['value'])],
+        [Paragraph('Result generated (UTC)', s['label']), Paragraph(_esc(result.get('generated_at', 'Not recorded')), s['value'])],
+        [Paragraph('Referral reason', s['label']), Paragraph(_esc(str(data.get('reason', 'SCREENING_CONFIRMATION')).replace('_', ' ').capitalize()), s['value'])],
+        [Paragraph('Counselling source', s['label']), Paragraph(_esc(
+            'Optional Gemini wording (safety text from reviewed local copy)' if data.get('counselling_mode') == 'GEMINI'
+            else 'Reviewed deterministic local copy'), s['value'])],
+        [Paragraph('Brief generated (UTC)', s['label']), Paragraph(_esc(data.get('generated_at') or datetime.now(timezone.utc).isoformat(timespec='seconds')), s['value'])],
     ]
+    if context.get('infant_age_hours') is not None:
+        rows.insert(3, [Paragraph('Newborn age (hours)', s['label']), Paragraph(_esc(context['infant_age_hours']), s['value'])])
+    if context.get('gestational_week') is not None:
+        rows.insert(3, [Paragraph('Gestational week', s['label']), Paragraph(_esc(context['gestational_week']), s['value'])])
     table = Table(rows, colWidths=[54*mm, 110*mm], hAlign='LEFT')
     table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.white), ('GRID',(0,0),(-1,-1),.45,LINE),

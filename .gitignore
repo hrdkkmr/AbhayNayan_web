@@ -20,3 +20,19 @@ android/**/build/
 android/**/*.apk
 *.apk
 .DS_Store
+
+# Raw or unreviewed datasets and model weights never enter Git (see docs/DATA_PROVENANCE.md).
+data/raw/
+data/private/
+*.csv
+!data/derived/*.csv
+*.xlsx
+*.zip
+*.rar
+*.7z
+*.keras
+*.h5
+*.tflite
+*.onnx
+*.pt
+*.pth

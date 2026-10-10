@@ -3,6 +3,7 @@
 **Product:** ABHAYNAYAN — Edge-AI Optical Biomarker Screening & Multimodal Clinical Protocol Copilot  
 **Tagline:** “Turn an entry-level Android phone into a frontline screening assistant.”  
 **Plan date:** 8 October 2026  
+**Update 10 October 2026:** API contract 1.0.0, model adapters, Gemini telemetry and sync conflict handling implemented; see `docs/RELEASE_NOTES.md` (0.2.0). Sections below describe the 8 October baseline.  
 **Status:** Final hackathon prototype release prepared: runnable web/API workflow, clean ZIP packager, native Android source plus Gradle wrapper/CI. Android APK, Docker image, live Gemini, and clinical model remain unverified/unavailable. This project is separate from `/home/user/spotstory`, which must remain untouched.
 
 ## 1. Product boundary and current truth
@@ -64,7 +65,7 @@ FastAPI + SQLite demo backend
 - The neonatal ZIP contains 478 JPEGs (239 `Forehead/`, 239 `Sternum/`) but no bilirubin label table was found. No jaundice model was trained/reported.
 - The CP-AnemiC ZIP has an uninspected nested RAR. Large `archive.zip` and `NJN.rar` were not downloaded. The supplied Colab was inspected statically but not run; it contains Kaggle-path-oriented repeated drafts.
 - Dataset license, provenance, consent, intended reuse, and clinical validity remain unverified. Raw CSV/images are not in the repository or package.
-- See `docs/dataset-audit.md` for methods, exact metric context, and reproduction command.
+- See `docs/DATA_PROVENANCE.md` and `docs/ML_MODEL_CARD.md` for methods, exact metric context, and reproduction command.
 
 ## 5. Milestones
 

@@ -29,25 +29,33 @@ export function buildFhirBundle(patient, result, worker = {}, screeningId = rand
     serviceProvider: worker?.phc ? { display: worker.phc } : undefined,
     meta: { tag: [{ system: 'urn:abhaynayan:tag', code: 'prototype', display: 'Prototype encounter' }] },
   };
-  const observationCode = result.screening_type === 'maternal_anemia' ? 'Optical hemoglobin screening estimate' : 'Optical bilirubin screening estimate';
+  const provenance = result.provenance || (result.synthetic === false ? 'EXPERIMENTAL_RESEARCH_ONLY' : 'DEMO_SYNTHETIC');
+  const measure = result.screening_type === 'maternal_anemia' ? 'hemoglobin' : 'bilirubin';
+  // Text-only code on purpose: a laboratory LOINC code would mislabel an optical or synthetic value as a lab measurement.
+  const observationCode = {
+    DEMO_SYNTHETIC: `Synthetic demonstration ${measure} value (not measured)`,
+    EXPERIMENTAL_RESEARCH_ONLY: `Experimental optical ${measure} estimate (research only, not validated)`,
+    VALIDATED_FOR_INTENDED_USE: `Optical ${measure} screening estimate`,
+  }[provenance];
+  const meta = provenanceMeta(provenance);
   const observationResource = {
     resourceType: 'Observation', id: observationId, status: 'preliminary', category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'exam', display: 'Exam' }] }],
     code: { text: observationCode }, subject: { reference: `Patient/${patientId}` }, encounter: { reference: `Encounter/${encounterId}` }, effectiveDateTime: result.generated_at || now(),
     valueQuantity: { value: Number(result.estimate), unit: result.unit, system: 'http://unitsofmeasure.org', code: result.unit === 'g/dL' ? 'g/dL' : 'mg/dL' },
-    method: { text: 'Smartphone optical screening prototype; synthetic demo case' },
-    note: [{ text: 'Preliminary synthetic prototype estimate only; not a clinically validated measurement or diagnosis. Confirm with appropriate clinical testing and local protocol.' }],
-    interpretation: [{ text: String(result.risk_category || 'DEMO_ONLY') }],
-    component: [
-      { code: { text: 'Prototype confidence (not clinical probability)' }, valueQuantity: { value: Number(result.confidence || 0), unit: 'fraction', system: 'http://unitsofmeasure.org', code: '1' } },
-      { code: { text: 'Image quality score (prototype)' }, valueQuantity: { value: Number(result.quality_score || 0), unit: 'fraction', system: 'http://unitsofmeasure.org', code: '1' } },
+    method: { text: provenance === 'DEMO_SYNTHETIC' ? 'Fixed synthetic demo fixture; no image or person was measured' : `Smartphone optical model ${result.model_version || 'unversioned'}` },
+    note: [
+      { text: provenance === 'DEMO_SYNTHETIC'
+        ? 'Preliminary synthetic prototype estimate only; not a clinically validated measurement or diagnosis. Confirm with appropriate clinical testing and local protocol.'
+        : 'Experimental research-only model output; not validated and not a laboratory measurement. Do not use for care decisions.' },
+      { text: `Prototype tag (not a clinical interpretation): ${String(result.risk_category || 'DEMO_ONLY').slice(0, 48)}` },
     ],
-    meta: { tag: [{ system: 'urn:abhaynayan:tag', code: 'synthetic-demo', display: 'Synthetic demo only' }] },
+    meta,
   };
   const reportResource = {
     resourceType: 'DiagnosticReport', id: reportId, status: 'preliminary', code: { text: 'AbhayNayan prototype screening report' },
     subject: { reference: `Patient/${patientId}` }, encounter: { reference: `Encounter/${encounterId}` }, effectiveDateTime: result.generated_at || now(), result: [{ reference: `Observation/${observationId}` }],
     conclusion: 'Synthetic prototype screening estimate only. Not a diagnosis or validated clinical result; confirm with appropriate clinical testing and local protocol.',
-    meta: { tag: [{ system: 'urn:abhaynayan:tag', code: 'not-clinical-diagnostic', display: 'Not a clinical diagnosis' }] },
+    meta: { tag: [{ system: 'urn:abhaynayan:tag', code: 'not-clinical-diagnostic', display: 'Not a clinical diagnosis' }], security: meta.security },
   };
   const resources = [patientResource, encounterResource, observationResource, reportResource].map(stripUndefined);
   return {
@@ -55,6 +63,17 @@ export function buildFhirBundle(patient, result, worker = {}, screeningId = rand
     meta: { tag: [{ system: 'urn:abhaynayan:tag', code: 'prototype', display: 'AbhayNayan hackathon prototype' }] },
     entry: resources.map((resource) => ({ fullUrl: `https://fhir.abhaynayan.invalid/${resource.resourceType}/${resource.id}`, resource })),
   };
+}
+
+// HL7 v3 ActReason HTEST marks synthetic/test data so a receiver cannot mistake it for a real record.
+const HTEST = { system: 'http://terminology.hl7.org/CodeSystem/v3-ActReason', code: 'HTEST', display: 'test health data' };
+function provenanceMeta(provenance) {
+  const tag = {
+    DEMO_SYNTHETIC: ['synthetic-demo', 'Synthetic demo only'],
+    EXPERIMENTAL_RESEARCH_ONLY: ['experimental-research-only', 'Experimental research output, not validated'],
+    VALIDATED_FOR_INTENDED_USE: ['validated-screening-estimate', 'Screening estimate; not a laboratory result'],
+  }[provenance];
+  return { tag: [{ system: 'urn:abhaynayan:provenance', code: tag[0], display: tag[1] }], security: provenance === 'VALIDATED_FOR_INTENDED_USE' ? undefined : [HTEST] };
 }
 
 function stripUndefined(value) {

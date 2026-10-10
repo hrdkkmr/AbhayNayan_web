@@ -15,7 +15,9 @@ Build/test command:
 ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
 ```
 
-The wrapper has been bootstrapped and `./gradlew --version` succeeds. In this sandbox, a temporary JDK 17/API 36 toolchain was provisioned and Gradle project configuration worked, but the daemon exited during resource/KSP work before compilation, Android unit tests, or APK assembly completed. No APK is currently delivered. A hosted Android CI job is configured in `../.github/workflows/ci.yml` but has not yet been executed. Read `../docs/ANDROID_STATUS.md` for exact evidence and the device-verification checklist.
+> The canonical Android source is now the separate `shubhamcore/AbhayNayan_apk` repository; this folder is a stale snapshot (see `../docs/ANDROID_INTEGRATION.md`).
+
+The wrapper has been bootstrapped and `./gradlew --version` succeeds. In this sandbox, a temporary JDK 17/API 36 toolchain was provisioned and Gradle project configuration worked, but the daemon exited during resource/KSP work before compilation, Android unit tests, or APK assembly completed. No APK is currently delivered. A hosted Android CI job is configured in `../.github/workflows/ci.yml` but has not yet been executed. Read `../docs/ANDROID_INTEGRATION.md` for exact evidence and the device-verification checklist.
 
 ## Native demo flow
 

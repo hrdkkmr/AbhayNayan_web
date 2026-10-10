@@ -40,6 +40,13 @@ def is_excluded(path: Path, include_android_apk: bool = False) -> bool:
         return True
     if lower.endswith((".log", ".tmp", ".bak")):
         return True
+    # Raw or unreviewed data and model weights never ship (mirrors .gitignore; see docs/DATA_PROVENANCE.md).
+    if relative.parts[:2] in {("data", "raw"), ("data", "private")}:
+        return True
+    if lower.endswith((".xlsx", ".zip", ".rar", ".7z", ".keras", ".h5", ".tflite", ".onnx", ".pt", ".pth")):
+        return True
+    if lower.endswith(".csv") and relative.parts[:2] != ("data", "derived"):
+        return True
     if lower.endswith(".apk"):
         return not (include_android_apk and relative.as_posix() == "android/app/build/outputs/apk/debug/app-debug.apk")
     return False

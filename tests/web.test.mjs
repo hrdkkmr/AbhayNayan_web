@@ -207,3 +207,36 @@ test('clear local store purges fallback patient and setting data', async () => {
   assert.equal((await store.getAll('patients')).length, 0);
   assert.equal(await store.getSetting('language', null), null);
 });
+
+test('demo fixtures carry provenance and no invented confidence or quality', () => {
+  for (const type of ['maternal_anemia', 'neonatal_jaundice']) {
+    for (const item of getDemoCases(type)) {
+      const result = runDemoInference(type, item.id);
+      assert.equal(result.provenance, 'DEMO_SYNTHETIC');
+      assert.equal(result.confidence, null);
+      assert.equal(result.quality_score, null);
+      assert.equal(result.model_version, 'fixed-demo-fixtures-v1');
+      assert.ok(result.risk_category.startsWith('DEMO_'), 'demo tags never look like clinical categories');
+    }
+  }
+});
+
+test('legacy local records without provenance are treated as synthetic demo', async () => {
+  const { provenanceOf, formatScore } = await import('../web-dashboard/js/inference.js');
+  assert.equal(provenanceOf({ synthetic: true }), 'DEMO_SYNTHETIC');
+  assert.equal(provenanceOf({ provenance: 'EXPERIMENTAL_RESEARCH_ONLY' }), 'EXPERIMENTAL_RESEARCH_ONLY');
+  assert.equal(formatScore(null), 'Not available');
+  assert.equal(formatScore(0.5), '50%');
+});
+
+test('local FHIR bundle marks synthetic data as test data and has no lab coding or fake components', () => {
+  const bundle = buildFhirBundle({ id: 'ABH-LOCAL-9' }, runDemoInference('maternal_anemia', 'maternal-normal'), {}, 'scr-htest');
+  const observation = bundle.entry.find((entry) => entry.resource.resourceType === 'Observation').resource;
+  const report = bundle.entry.find((entry) => entry.resource.resourceType === 'DiagnosticReport').resource;
+  assert.equal(observation.meta.security[0].code, 'HTEST');
+  assert.equal(report.meta.security[0].code, 'HTEST');
+  assert.equal(observation.code.coding, undefined);
+  assert.equal(observation.component, undefined);
+  assert.equal(observation.interpretation, undefined);
+  assert.match(observation.code.text, /not measured/);
+});

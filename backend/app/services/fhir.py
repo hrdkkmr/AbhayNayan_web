@@ -7,6 +7,20 @@ from uuid import uuid4
 
 PROTOTYPE_NOTE = ('Preliminary synthetic prototype screening estimate only; not a diagnosis or validated clinical measurement. '
                   'Confirm with appropriate clinical testing and local protocol.')
+EXPERIMENTAL_NOTE = ('Experimental research-only model output; not validated and not a laboratory measurement. '
+                     'Do not use for care decisions; confirm with appropriate clinical testing.')
+# HL7 v3 ActReason HTEST marks test/synthetic health data so receivers cannot mistake it for real records.
+HTEST = {'system': 'http://terminology.hl7.org/CodeSystem/v3-ActReason', 'code': 'HTEST', 'display': 'test health data'}
+
+
+def _meta(provenance: str) -> dict[str, Any]:
+    tag = {'DEMO_SYNTHETIC': ('synthetic-demo', 'Synthetic demo only'),
+           'EXPERIMENTAL_RESEARCH_ONLY': ('experimental-research-only', 'Experimental research output, not validated'),
+           'VALIDATED_FOR_INTENDED_USE': ('validated-screening-estimate', 'Screening estimate; not a laboratory result')}[provenance]
+    meta: dict[str, Any] = {'tag': [{'system': 'urn:abhaynayan:provenance', 'code': tag[0], 'display': tag[1]}]}
+    if provenance != 'VALIDATED_FOR_INTENDED_USE':
+        meta['security'] = [HTEST]
+    return meta
 
 
 def _now() -> str:
@@ -45,21 +59,28 @@ class FHIRGenerator:
 
     def generate_observation(self, result: dict[str, Any], patient_id: str, encounter_id: str, observation_id: str | None = None) -> dict[str, Any]:
         screening_type = result['screening_type']
-        text = 'Optical hemoglobin screening estimate' if screening_type == 'maternal_anemia' else 'Optical bilirubin screening estimate'
+        provenance = result.get('provenance') or ('DEMO_SYNTHETIC' if result.get('synthetic', True) else 'EXPERIMENTAL_RESEARCH_ONLY')
+        measure = 'hemoglobin' if screening_type == 'maternal_anemia' else 'bilirubin'
         unit = 'g/dL' if screening_type == 'maternal_anemia' else 'mg/dL'
-        return {
+        # Text-only code on purpose: a lab LOINC code would mislabel an optical estimate as a laboratory measurement.
+        label = {'DEMO_SYNTHETIC': f'Synthetic demonstration {measure} value (not measured)',
+                 'EXPERIMENTAL_RESEARCH_ONLY': f'Experimental optical {measure} estimate (research only, not validated)',
+                 'VALIDATED_FOR_INTENDED_USE': f'Optical {measure} screening estimate'}[provenance]
+        resource: dict[str, Any] = {
             'resourceType': 'Observation', 'id': _id(observation_id or f"obs-{uuid4()}"),
             'status': 'preliminary',
             'category': [{'coding': [{'system': 'http://terminology.hl7.org/CodeSystem/observation-category', 'code': 'exam', 'display': 'Exam'}]}],
-            'code': {'text': text}, 'subject': {'reference': f'Patient/{patient_id}'},
+            'code': {'text': label}, 'subject': {'reference': f'Patient/{patient_id}'},
             'encounter': {'reference': f'Encounter/{encounter_id}'},
             'effectiveDateTime': str(result.get('generated_at') or _now()),
             'valueQuantity': {'value': float(result['estimate']), 'unit': unit, 'system': 'http://unitsofmeasure.org', 'code': unit},
-            'method': {'text': 'Smartphone optical screening prototype; synthetic demo case'},
-            'note': [{'text': PROTOTYPE_NOTE}],
-            'interpretation': [{'text': str(result.get('risk_category', 'DEMO_ONLY'))}],
-            'meta': {'tag': [{'system': 'urn:abhaynayan:tag', 'code': 'synthetic-demo', 'display': 'Synthetic demo only'}]},
+            'method': {'text': 'Fixed synthetic demo fixture; no image or person was measured' if provenance == 'DEMO_SYNTHETIC'
+                       else f"Smartphone optical model {result.get('model_version') or 'unversioned'}"},
+            'note': [{'text': PROTOTYPE_NOTE if provenance == 'DEMO_SYNTHETIC' else EXPERIMENTAL_NOTE},
+                     {'text': f"Prototype tag (not a clinical interpretation): {str(result.get('risk_category', 'DEMO_ONLY'))[:48]}"}],
+            'meta': _meta(provenance),
         }
+        return resource
 
     def generate_encounter(self, patient_id: str, encounter_id: str, worker: dict[str, Any] | None = None,
                            effective: str | None = None) -> dict[str, Any]:
@@ -95,6 +116,8 @@ class FHIRGenerator:
         encounter = self.generate_encounter(patient_resource['id'], encounter_id, worker, str(result.get('generated_at') or _now()))
         report_id = _related_id('report', raw_sid)
         report = self.generate_diagnostic_report(patient_resource['id'], encounter_id, observation['id'], report_id, str(result.get('generated_at') or _now()))
+        if observation['meta'].get('security'):  # FHIR forbids empty arrays
+            report['meta']['security'] = observation['meta']['security']
         resources = [patient_resource, encounter, observation, report]
         return {
             'resourceType': 'Bundle', 'id': str(uuid4()), 'type': 'collection', 'timestamp': _now(),

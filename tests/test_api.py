@@ -151,15 +151,23 @@ def test_sync_rejects_non_synthetic_output(client):
     record = valid_sync_record()
     record['result']['synthetic'] = False
     record['result']['model_mode'] = 'TFLITE'
+    record['result']['provenance'] = 'EXPERIMENTAL_RESEARCH_ONLY'
     response = client.post('/api/sync', json={'records': [record]})
-    assert response.status_code == 422
+    # Contract 1.0: invalid records are rejected individually instead of failing the whole batch.
+    assert response.status_code == 200
+    assert response.json()['rejected'] == 1
+    assert response.json()['results'][0]['error']['code'] == 'CLIENT_RESULT_NOT_ACCEPTED'
+    assert response.json()['synced_ids'] == []
+    assert client.get('/api/dashboard').json()['total_screenings'] == 0
 
 
 def test_sync_rejects_non_demo_patient(client):
     record = valid_sync_record()
     record['patient']['demo'] = False
     response = client.post('/api/sync', json={'records': [record]})
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert response.json()['results'][0]['status'] == 'rejected'
+    assert client.get('/api/dashboard').json()['total_screenings'] == 0
 
 
 def test_sync_rejects_more_than_100_records(client):

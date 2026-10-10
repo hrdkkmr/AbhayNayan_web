@@ -1,14 +1,28 @@
+// Fixed demonstration values, mirrored from backend/app/core/inference.py. They carry no
+// confidence or quality score: a fixture has neither, so the contract sends null.
 const CASES = {
   maternal_anemia: {
-    'maternal-normal': { value: 11.8, unit: 'g/dL', category: 'DEMO_LOW', confidence: 0.82, quality: 0.91, name: 'Normal-like (synthetic)' },
-    'maternal-moderate': { value: 9.4, unit: 'g/dL', category: 'DEMO_MODERATE', confidence: 0.82, quality: 0.91, name: 'Moderate-risk-like (synthetic)' },
-    'maternal-high': { value: 7.8, unit: 'g/dL', category: 'DEMO_HIGH', confidence: 0.79, quality: 0.90, name: 'Higher-review (synthetic)' },
+    'maternal-normal': { value: 11.8, unit: 'g/dL', category: 'DEMO_LOW', name: 'Normal-like (synthetic)' },
+    'maternal-moderate': { value: 9.4, unit: 'g/dL', category: 'DEMO_MODERATE', name: 'Moderate-risk-like (synthetic)' },
+    'maternal-high': { value: 7.8, unit: 'g/dL', category: 'DEMO_HIGH', name: 'Higher-review (synthetic)' },
   },
   neonatal_jaundice: {
-    'jaundice-review': { value: 12.8, unit: 'mg/dL', category: 'REQUIRES_REVIEW', confidence: 0.79, quality: 0.90, name: 'Review case (synthetic)' },
-    'jaundice-escalate': { value: 18.0, unit: 'mg/dL', category: 'DEMO_ESCALATE', confidence: 0.76, quality: 0.88, name: 'Escalation-like (synthetic)' },
+    'jaundice-review': { value: 12.8, unit: 'mg/dL', category: 'DEMO_REVIEW', name: 'Review case (synthetic)' },
+    'jaundice-escalate': { value: 18.0, unit: 'mg/dL', category: 'DEMO_ESCALATE', name: 'Escalation-like (synthetic)' },
   },
 };
+export const DEMO_MODEL_VERSION = 'fixed-demo-fixtures-v1';
+
+export const PROVENANCE = {
+  DEMO_SYNTHETIC: { label: 'Synthetic demo value', short: 'DEMO', tone: 'badge-amber', detail: 'Fixed demonstration value. Not computed from any image or person.' },
+  EXPERIMENTAL_RESEARCH_ONLY: { label: 'Experimental research output', short: 'EXPERIMENTAL', tone: 'badge-red', detail: 'Output of a non-validated research model. Not a measurement.' },
+  VALIDATED_FOR_INTENDED_USE: { label: 'Validated screening estimate', short: 'VALIDATED', tone: 'badge-blue', detail: 'Screening estimate only; confirm with laboratory testing.' },
+};
+
+export function provenanceOf(result) {
+  // Records saved before contract 1.0 have no provenance field; they were all demo fixtures.
+  return result?.provenance || (result?.synthetic === false ? 'EXPERIMENTAL_RESEARCH_ONLY' : 'DEMO_SYNTHETIC');
+}
 
 export function getDemoCases(screeningType) {
   const cases = CASES[screeningType] || {};
@@ -23,21 +37,27 @@ export function runDemoInference(screeningType, caseId) {
     estimate: item.value,
     unit: item.unit,
     risk_category: item.category,
-    confidence: item.confidence,
-    quality_score: item.quality,
+    confidence: null,
+    quality_score: null,
     requires_confirmation: true,
     model_mode: 'DEMO',
+    synthetic: true,
+    provenance: 'DEMO_SYNTHETIC',
+    model_version: DEMO_MODEL_VERSION,
     case_id: caseId,
     case_label: item.name,
-    synthetic: true,
     generated_at: new Date().toISOString(),
+    limitations: ['Fixed demonstration value; not computed from any image, feature, or person.'],
     safety_note: 'Synthetic demonstration estimate only. Not a diagnosis or validated measurement. Confirm with appropriate clinical testing and local protocol.',
   };
 }
 
 export function formatEstimate(result) {
-  const digits = result.screening_type === 'maternal_anemia' ? 1 : 1;
-  return `${Number(result.estimate).toFixed(digits)} ${result.unit}`;
+  return `${Number(result.estimate).toFixed(1)} ${result.unit}`;
+}
+
+export function formatScore(value, missing = 'Not available') {
+  return value === null || value === undefined || Number.isNaN(Number(value)) ? missing : `${Math.round(Number(value) * 100)}%`;
 }
 
 export function riskTone(category) {
