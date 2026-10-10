@@ -1,0 +1,9 @@
+# Verified in the current Linux/Python 3.13 environment; build wheels may vary by platform.
+fastapi==0.142.4
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+httpx==0.28.1
+numpy==2.3.5
+opencv-python-headless==4.11.0.86
+reportlab==4.5.1
+pytest==9.0.3

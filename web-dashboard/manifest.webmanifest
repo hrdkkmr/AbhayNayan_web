@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "AbhayNayan Frontline Screening Assistant",
+  "short_name": "AbhayNayan",
+  "description": "Offline-first screening workflow prototype. Synthetic demo only; not a diagnosis.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f8f8",
+  "theme_color": "#123642",
+  "lang": "en-IN",
+  "categories": ["medical", "health"],
+  "icons": [
+    { "src": "/assets/abhaynayan-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "artifact_type": "RESEARCH_ONLY_COLOR_BASELINE",
+  "version": "0.1",
+  "created_at": "2026-10-08T09:00:06.944256+00:00",
+  "features": [
+    "red_pct",
+    "green_pct",
+    "blue_pct"
+  ],
+  "mean": [
+    45.654175,
+    28.87550673076923,
+    25.470325000000003
+  ],
+  "scale": [
+    2.802721327146927,
+    1.5467845985403461,
+    1.9751067524581474
+  ],
+  "coefficients_scaled": [
+    0.4368872230305758,
+    -1.3780996331908633,
+    0.4587997283755264
+  ],
+  "intercept": 12.150961538461539,
+  "unit": "g/dL",
+  "metrics": {
+    "n": 104,
+    "unique_subject_groups": 104,
+    "folds": 5,
+    "mae_g_dl": 1.5041,
+    "rmse_g_dl": 1.9392,
+    "r2": 0.3987,
+    "validation": "GroupKFold by subject ID; exploratory internal CV only; not external validation"
+  },
+  "source_dataset": "User-shared Anemia_Dataset.csv; 104-row feature/label file; raw dataset excluded",
+  "identifier_handling": "Name/group ID used only transiently for grouped split; not stored in this artifact.",
+  "limitations": [
+    "Small single-source dataset; no external validation or prospective evaluation.",
+    "MAE is too large for patient-level decision making; do not use for screening, diagnosis, treatment, or referral decisions.",
+    "Color-percentage features may be device/lighting dependent and may not match new camera images.",
+    "Provenance, license, consent, and population representativeness require confirmation."
+  ],
+  "enabled_by_default": false
+}
