@@ -216,6 +216,16 @@ def test_retry_with_same_request_id_does_not_call_provider_twice(provider):
     assert usage(provider)['outcomes'] == {'OK': 1, 'IDEMPOTENT_REPLAY': 1}
 
 
+def test_fallback_is_not_replayed_for_same_request_id(provider):
+    provider.handler = lambda request: httpx.Response(429, json={'error': {'code': 429, 'status': 'RESOURCE_EXHAUSTED', 'message': 'quota'}})
+    first = post(provider, request_id='cns-ABC-1-en')
+    assert first['mode'] == 'LOCAL_FALLBACK'
+    provider.handler = lambda request: generate()
+    second = post(provider, request_id='cns-ABC-1-en')
+    assert second['mode'] == 'GEMINI'
+    assert len(generate_calls(provider)) == 2
+
+
 def test_demo_inputs_are_cached_but_non_demo_inputs_are_not(provider):
     post(provider); post(provider)
     assert len(generate_calls(provider)) == 1

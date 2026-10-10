@@ -308,7 +308,9 @@ async def counsel(req: GeminiCounselRequest) -> GeminiCounselResponse:
             _inflight.pop(req.request_id, None)
     if future is not None and not future.done():
         future.set_result(result)
-    if req.request_id:
+    # Only provider-accepted wording is replayed. Caching a fallback (quota, timeout) would pin the client's
+    # request_id (cns-<screening>-<lang>) to deterministic copy for the whole TTL, even after the provider recovers.
+    if req.request_id and result.mode == 'GEMINI':
         _idempotent[req.request_id] = (time.monotonic(), result)
     if demo_key and result.mode == 'GEMINI':
         _demo_cache[demo_key] = (time.monotonic(), result)
