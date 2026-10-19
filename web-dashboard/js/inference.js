@@ -124,7 +124,8 @@ export async function runLiveInference({
 // 3. UNIFIED INFERENCE DISPATCHER (DEMO OR LIVE)
 // =============================================================================
 export function runDemoInference(screeningType, caseId) {
-  const item = CASES[screeningType]?.[caseId] || Object.values(CASES[screeningType] || {})[0];
+  const casesForType = CASES[screeningType];
+  const item = caseId ? casesForType?.[caseId] : Object.values(casesForType || {})[0];
   if (!item) {
     throw new Error(`Unknown demo case: ${screeningType}/${caseId}`);
   }
