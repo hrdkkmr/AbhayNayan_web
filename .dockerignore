@@ -1,0 +1,11 @@
+.git
+.env
+.venv
+venv
+node_modules
+__pycache__
+.pytest_cache
+*.sqlite3*
+*.apk
+android
+/tmp

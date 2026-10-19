@@ -1,0 +1,24 @@
+services:
+  abhaynayan:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: abhaynayan-prototype:0.1.0
+    ports:
+      - "${ABHAYNAYAN_PORT:-8000}:8000"
+    environment:
+      ABHAYNAYAN_DB_PATH: /data/abhaynayan.sqlite3
+      ABHAYNAYAN_ALLOW_ORIGINS: ${ABHAYNAYAN_ALLOW_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+    volumes:
+      - abhaynayan-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  abhaynayan-data:

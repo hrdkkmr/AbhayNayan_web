@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#123642">
+  <meta name="description" content="Offline-first screening workflow prototype for frontline health workers. Demo mode only; not a diagnosis.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/abhaynayan-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+  <title>AbhayNayan · Frontline Screening Assistant</title>
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">Skip to main content</a>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true"><span>अ</span></div>
+        <div><div class="brand-name">ABHAYNAYAN</div><div class="brand-tag">FRONTLINE SCREENING</div></div>
+      </div>
+      <div class="demo-ribbon"><span class="pulse-dot"></span> PROTOTYPE / DEMO MODE</div>
+      <nav class="side-nav" id="sideNav">
+        <button class="nav-item active" data-page="home"><span class="nav-icon">⌂</span><span>Home</span></button>
+        <button class="nav-item nav-primary" data-page="new"><span class="nav-icon">＋</span><span>New screening</span></button>
+        <button class="nav-item" data-page="patients"><span class="nav-icon">♙</span><span>Patients</span></button>
+        <button class="nav-item" data-page="history"><span class="nav-icon">◷</span><span>History</span></button>
+        <button class="nav-item" data-page="sync"><span class="nav-icon">⇄</span><span>Sync queue</span><span class="nav-count" id="navPending">0</span></button>
+        <div class="nav-section-label">CLINICAL WORKSPACE</div>
+        <button class="nav-item" data-page="phc"><span class="nav-icon">▤</span><span>PHC dashboard</span></button>
+        <button class="nav-item" data-page="architecture"><span class="nav-icon">⌘</span><span>Pipeline & architecture</span></button>
+        <button class="nav-item" data-page="model"><span class="nav-icon">◈</span><span>Model & data audit</span></button>
+        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="worker-mini"><div class="avatar">AS</div><div class="worker-mini-copy"><strong id="workerMiniName">Demo ASHA Worker</strong><span id="workerMiniPhc">Demo PHC · Bihta</span></div><button class="icon-button" data-page="settings" aria-label="Edit worker profile">⋯</button></div>
+        <div class="privacy-note"><span>▣</span><span>Local-first demo · no photo upload</span></div>
+      </div>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <button class="mobile-menu icon-button" id="mobileMenu" aria-label="Toggle navigation">☰</button>
+        <div class="breadcrumb"><span>AbhayNayan</span><span class="crumb-sep">/</span><strong id="currentSection">Home</strong></div>
+        <div class="topbar-actions">
+          <div class="network-chip online" id="networkChip"><span class="network-dot"></span><span id="networkLabel">ONLINE</span></div>
+          <button class="language-switch" id="languageButton" aria-label="Change language"><span class="language-symbol">अ</span><span id="languageLabel">हिन्दी</span><span class="chevron">⌄</span></button>
+          <button class="avatar avatar-top" data-page="settings" aria-label="Worker settings">AS</button>
+        </div>
+      </header>
+
+      <main id="mainContent" class="main-content" tabindex="-1" aria-live="polite"></main>
+      <footer class="app-footer"><span>ABHAYNAYAN · PROTOTYPE BUILD 0.1</span><span>Screening estimates only · clinical confirmation required</span></footer>
+    </div>
+  </div>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  <div class="modal-root" id="modalRoot"></div>
+  <input id="imagePicker" type="file" accept="image/*" capture="environment" hidden>
+  <script type="module" src="/js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>

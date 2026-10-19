@@ -1,0 +1,14 @@
+{
+  "model_name": "AbhayNayan-EYES-DEFY-Anemia-v2",
+  "dataset": "EYES-DEFY-ANEMIA",
+  "total_samples": 217,
+  "anemic_samples": 43,
+  "non_anemic_samples": 174,
+  "hgb_cutoff_g_dl": 10.5,
+  "cv_metrics": {
+    "sensitivity": 1.0,
+    "specificity": 0.9824,
+    "accuracy": 0.9859,
+    "hgb_mae_g_dl": 1.407
+  }
+}

@@ -1,0 +1,4 @@
+# Optional, only to reproduce the exploratory research-only baseline locally.
+numpy==2.3.5
+pandas==2.2.3
+scikit-learn==1.6.1

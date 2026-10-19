@@ -1,0 +1,60 @@
+name: AbhayNayan checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-api:
+    name: Python API and safety tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - run: python -m compileall -q backend tests
+      - run: python -m pip check
+      - run: python -m pytest -q
+
+  web:
+    name: Web modules and workflow smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:web
+      - run: npm run test:ui
+      - run: npm run check:web
+
+  android:
+    name: Android compile, unit tests, and debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble and run unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abhaynayan-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

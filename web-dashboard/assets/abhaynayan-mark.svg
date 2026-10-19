@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AbhayNayan mark">
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#e7fbf2"/><stop offset="1" stop-color="#9fdec9"/></linearGradient></defs>
+  <rect width="128" height="128" rx="29" fill="#123642"/>
+  <path d="M64 15 104 31v31c0 26-16 42-40 52C40 104 24 88 24 62V31z" fill="url(#g)"/>
+  <path d="M44 70c8-16 22-24 41-25-2 18-12 32-30 39-5-3-9-8-11-14z" fill="#0b817d"/>
+  <circle cx="78" cy="46" r="5" fill="#123642"/>
+</svg>
