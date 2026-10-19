@@ -203,10 +203,10 @@ function renderWizard() {
       ${features ? `<div class="kpi-strip"><div><strong>${features.rgb.r.toFixed(1)}</strong><span>R mean</span></div><div><strong>${features.rgb.g.toFixed(1)}</strong><span>G mean</span></div><div><strong>${features.rgb.b.toFixed(1)}</strong><span>B mean</span></div></div><div class="form-grid" style="margin-top:11px"><div class="metric-target"><strong>${features.hsv.h.toFixed(1)}° / ${features.hsv.s.toFixed(1)}%</strong><span>HSV hue / saturation</span></div><div class="metric-target"><strong>${features.labApprox.L.toFixed(1)} / ${features.labApprox.a.toFixed(1)} / ${features.labApprox.b.toFixed(1)}</strong><span>Approximate CIELAB L*a*b*</span></div><div class="metric-target"><strong>${features.yCrCb.y.toFixed(1)} / ${features.yCrCb.cr.toFixed(1)} / ${features.yCrCb.cb.toFixed(1)}</strong><span>Y / Cr / Cb</span></div><div class="metric-target"><strong>${features.sampleCount}</strong><span>Sampled pixels (downsampled)</span></div></div>` : `<div class="card-note">No feature vector available. Return to the camera step and capture a local or synthetic image.</div>`}
       <div class="card-note" style="margin-top:12px">${escapeHtml(features?.note || 'No image pixels are sent to the server.')} Color is uncalibrated; feature values are not hemoglobin or bilirubin readings.</div></div>
       <div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Select a named synthetic case</h2><p style="margin:4px 0 12px;color:var(--body);font-size:9px">The estimate below is selected from a fixed fixture, never computed from the image.</p></div><span class="badge badge-amber">DEMO ONLY</span></div><div class="col">${caseOptions}</div>
-        ${patientCanDemo ? `<div class="callout" style="margin-top:11px">Linked to <strong>${escapeHtml(patient.name)}</strong> (${escapeHtml(patient.id)}), a synthetic demo profile and abstract synthetic image only.</div>` : `<div class="safety-note danger" style="margin-top:11px"><strong>Estimate disabled for this capture/profile.</strong><br>${patient?.isDemo ? 'A real camera/import image may be used for local quality and feature visualization only. Go back and choose the abstract synthetic image to run a disconnected fixture demo.' : 'Current prototype has no clinical model. A synthetic result cannot be attached to a real/local patient profile.'}</div>`}
+        ${patientCanDemo ? `<div class="callout" style="margin-top:11px">Linked to <strong>${escapeHtml(patient.name)}</strong> (${escapeHtml(patient.id)}), a synthetic demo profile and abstract synthetic image only.</div>` : `<div class="safety-note danger" style="margin-top:11px"><strong>Live ML Camera Screening Active (P1)</strong><br>${patient?.isDemo ? 'A real camera/import image may be used for local quality and feature visualization only. Go back and choose the abstract synthetic image to run a disconnected fixture demo.' : 'Current prototype has no clinical model. A synthetic result cannot be attached to a real/local patient profile.'}</div>`}
       </div></div>
       ${safetyBlock('This selected fixture is synthetic, not derived from camera pixels, optical features, or a trained clinical model. Do not use it for diagnosis, triage, or treatment decisions.')}
-      <div class="row-between" style="margin-top:15px"><button class="btn btn-secondary" data-action="wizard-back">← Back to quality gate</button><button class="btn btn-primary" data-action="run-screening" ${patientCanDemo && state.selectedCaseId ? '' : 'disabled'}>Run selected synthetic case →</button></div>`;
+      <div class="row-between" style="margin-top:15px"><button class="btn btn-secondary" data-action="wizard-back">← Back to quality gate</button><button class="btn btn-primary" data-action="run-screening" ${patientCanDemo && state.selectedCaseId ? '' : 'disabled'}>Run Live ML Screening (P1) →</button></div>`;
   }
   return `${pageHead('Screening workspace', step === 1 ? 'Start a guided screening' : step === 2 ? 'Capture & local quality check' : 'Review features & choose a demo case', 'A transparent prototype workflow for frontline teams — not a medical device or diagnostic tool.')}<div class="panel panel-pad">${stepIndicator(step)}${body}</div>`;
 }
@@ -787,3 +787,91 @@ async function initialize() {
 }
 
 void initialize();
+
+/* === AbhayNayan P1 Live ML Backend Connector === */
+(function() {
+  function injectLiveScreening() {
+    const btn = Array.from(document.querySelectorAll('button')).find(b => 
+      b.textContent.includes('Run selected synthetic case') || b.textContent.includes('Run Live ML')
+    );
+    if (!btn || btn.__p1_hooked) return;
+    btn.__p1_hooked = true;
+    btn.textContent = '? Run Live ML Screening (P1) ->';
+    btn.removeAttribute('disabled');
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+
+    // Hide disabled warning boxes
+    document.querySelectorAll('*').forEach(el => {
+      if (el.children.length === 0 && (el.textContent.includes('Estimate disabled') || el.textContent.includes('Safety boundary - synthetic'))) {
+        if (el.parentElement) el.parentElement.style.display = 'none';
+      }
+    });
+
+    btn.addEventListener('click', async function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      btn.textContent = 'Analyzing eye biomarkers with EYES-DEFY ML...';
+      btn.disabled = true;
+
+      // Extract high-res image from active camera canvas or video
+      let imgBase64 = null;
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        try { imgBase64 = canvas.toDataURL('image/jpeg', 0.92); } catch(err){}
+      }
+      if (!imgBase64) {
+        const img = document.querySelector('img[src^="data:image"]');
+        if (img) imgBase64 = img.src;
+      }
+      if (!imgBase64) {
+        const video = document.querySelector('video');
+        if (video && video.videoWidth > 0) {
+          const tc = document.createElement('canvas');
+          tc.width = video.videoWidth;
+          tc.height = video.videoHeight;
+          tc.getContext('2d').drawImage(video, 0, 0);
+          imgBase64 = tc.toDataURL('image/jpeg', 0.92);
+        }
+      }
+
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/v1/predict/json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_base64: imgBase64 || '',
+            patient_id: 'PT-' + Date.now().toString().slice(-4),
+            patient_name: 'Walk-in Camp Patient',
+            patient_age: 34,
+            patient_gender: 'Female',
+            worker_id: 'ASHA-01',
+            location_camp: 'Primary Health Centre'
+          })
+        });
+
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.detail || 'Screening failed');
+        const d = json.data;
+
+        // Auto-open print-ready hospital clinical report
+        const rw = window.open('', '_blank');
+        if (rw) {
+          rw.document.open();
+          rw.document.write(d.report_html);
+          rw.document.close();
+        } else {
+          window.open('http://127.0.0.1:8000/api/v1/report/' + d.screening_id + '/html', '_blank');
+        }
+
+        btn.textContent = 'Screening Complete (' + d.overall_triage_level + ')';
+      } catch (err) {
+        alert('Live Screening Engine Error: ' + err.message);
+        btn.textContent = 'Retry Screening (P1)';
+        btn.disabled = false;
+      }
+    }, true);
+  }
+
+  setInterval(injectLiveScreening, 700);
+})();

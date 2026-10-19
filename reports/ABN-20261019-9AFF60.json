@@ -1,0 +1,110 @@
+{
+  "screening_id": "ABN-20261019-9AFF60",
+  "patient_id": "PT-DEMO-101",
+  "patient_name": "Sunita Devi",
+  "patient_age": 29,
+  "patient_gender": "Female",
+  "worker_id": "ASHA-BR-042",
+  "location_camp": "Dayalpur PHC Camp",
+  "timestamp_utc": "2026-10-19 11:25:55 UTC",
+  "image_sha256": "7aba306a35230353",
+  "inference_mode": "HYBRID_EYES_DEFY_ML",
+  "inference_latency_ms": 46.75,
+  "iqc": {
+    "width": 256,
+    "height": 256,
+    "sharpness_score": 69.3,
+    "mean_luminance": 207.2,
+    "glare_ratio": 0.0,
+    "contrast_score": 45.4,
+    "is_acceptable": true,
+    "quality_grade": "ADEQUATE",
+    "guidance_feedback": [
+      "Capture meets clinical optical quality standards."
+    ]
+  },
+  "biomarkers": [
+    {
+      "code": "ANM-EI",
+      "name": "Conjunctival Erythema Index (Anemia Proxy)",
+      "value": 7.53,
+      "unit": "EI units",
+      "reference_range": "18.0 \u2013 36.0 EI",
+      "status": "ABNORMAL",
+      "clinical_interpretation": "Calibrated EYES-DEFY Model Anemia Risk: 94% | Est. Hb: 11.1 g/dL"
+    },
+    {
+      "code": "SCL-ICT",
+      "name": "Scleral Icterus Chromaticity (Jaundice Proxy)",
+      "value": 6.71,
+      "unit": "CIE b* idx",
+      "reference_range": "1.0 \u2013 10.5 idx",
+      "status": "NORMAL",
+      "clinical_interpretation": "Scleral chromaticity within normal avascular white reference range."
+    },
+    {
+      "code": "PUP-OPC",
+      "name": "Pupillary Media Opacity Score (Cataract Proxy)",
+      "value": 38.9,
+      "unit": "% reflectance",
+      "reference_range": "5.0 \u2013 46.0 %",
+      "status": "NORMAL",
+      "clinical_interpretation": "Clear dark pupillary aperture without gross leukocoria."
+    },
+    {
+      "code": "OCU-HYP",
+      "name": "Bulbar Vascular Hyperemia Index",
+      "value": 21.8,
+      "unit": "Hyperemia idx",
+      "reference_range": "2.0 \u2013 30.0 idx",
+      "status": "NORMAL",
+      "clinical_interpretation": "Calm ocular surface without abnormal vascular injection."
+    }
+  ],
+  "predictions": [
+    {
+      "condition_id": "anemia_pallor",
+      "condition_name": "Conjunctival Pallor (Suspected Anemia)",
+      "probability": 0.947,
+      "confidence": 0.83,
+      "severity_tier": "HIGH",
+      "primary_evidence": "Conjunctival Erythema Index = 7.53 EI units",
+      "recommended_action": "Perform point-of-care digital hemoglobin (Hb) test and initiate iron/folate protocol if Hb < 11 g/dL."
+    },
+    {
+      "condition_id": "cataract_opacity",
+      "condition_name": "Lenticular / Media Opacity (Cataract Screen)",
+      "probability": 0.169,
+      "confidence": 0.83,
+      "severity_tier": "LOW",
+      "primary_evidence": "Pupillary Reflectance Score = 38.9%",
+      "recommended_action": "No immediate intervention required; continue routine wellness monitoring."
+    },
+    {
+      "condition_id": "ocular_hyperemia",
+      "condition_name": "Ocular Surface Hyperemia / Conjunctivitis",
+      "probability": 0.116,
+      "confidence": 0.83,
+      "severity_tier": "LOW",
+      "primary_evidence": "Bulbar Redness Index = 21.8",
+      "recommended_action": "No immediate intervention required; continue routine wellness monitoring."
+    },
+    {
+      "condition_id": "scleral_icterus",
+      "condition_name": "Scleral Icterus (Suspected Jaundice)",
+      "probability": 0.082,
+      "confidence": 0.83,
+      "severity_tier": "LOW",
+      "primary_evidence": "Scleral Yellow Shift = 6.71 CIE b* idx",
+      "recommended_action": "No immediate intervention required; continue routine wellness monitoring."
+    }
+  ],
+  "overall_triage_level": "RED (Urgent PHC / Ophthalmic Referral)",
+  "triage_code": "RED",
+  "overall_risk_score": 94.7,
+  "clinical_summary": "High-priority screening alert flagged for Conjunctival Pallor (Suspected Anemia) (peak risk: 94.7%). Immediate clinical confirmation at Primary Health Centre advised.",
+  "follow_up_instructions": [
+    "[Conjunctival Pallor (Suspected Anemia)] Perform point-of-care digital hemoglobin (Hb) test and initiate iron/folate protocol if Hb < 11 g/dL."
+  ],
+  "report_html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>AbhayNayan Clinical Screening Report \u2014 ABN-20261019-9AFF60</title>\n<style>\n  :root { --ink: #0F172A; --muted: #475569; --line: #E2E8F0; --brand: #0F766E; --surface: #F8FAFC; }\n  * { box-sizing: border-box; }\n  body { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; color: var(--ink); background: #F1F5F9; margin: 0; padding: 24px; font-size: 13px; line-height: 1.45; }\n  .page { max-width: 900px; margin: 0 auto; background: #FFFFFF; border: 1px solid var(--line); border-radius: 8px; padding: 28px 32px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06); }\n  .toolbar { max-width: 900px; margin: 0 auto 12px auto; display: flex; justify-content: flex-end; gap: 10px; }\n  .btn { background: var(--brand); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }\n  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--brand); padding-bottom: 14px; margin-bottom: 18px; }\n  .brand-title { font-size: 20px; font-weight: 800; color: var(--brand); margin: 0; }\n  .brand-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }\n  .meta-right { text-align: right; font-size: 12px; color: var(--muted); }\n  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; }\n  .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }\n  .field-val { font-size: 13px; font-weight: 700; margin-top: 2px; }\n  .triage-banner { background: #FEF2F2; border: 1px solid #DC2626; border-left: 6px solid #DC2626; color: #991B1B; padding: 14px 18px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }\n  .triage-title { font-size: 15px; font-weight: 800; margin: 0 0 4px 0; }\n  .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brand); border-bottom: 1px solid var(--line); padding-bottom: 6px; margin: 20px 0 10px 0; }\n  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12.5px; }\n  th { background: var(--surface); text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--line); color: var(--muted); font-weight: 700; }\n  td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }\n  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }\n  .muted { color: var(--muted); font-size: 11px; }\n  .status-pill { display: inline-block; padding: 2px 8px; border: 1px solid; border-radius: 999px; font-size: 10.5px; font-weight: 700; }\n  .prob-wrap { width: 110px; }\n  .prob-bar { height: 6px; background: #E2E8F0; border-radius: 3px; margin-top: 4px; overflow: hidden; }\n  .prob-fill { height: 100%; border-radius: 3px; }\n  .iqc-strip { display: flex; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 12px; margin-bottom: 16px; }\n  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }\n  @media print { body { background: #fff; padding: 0; } .toolbar { display: none; } .page { box-shadow: none; border: none; padding: 10px; } }\n</style>\n</head>\n<body>\n  <div class=\"toolbar\">\n    <button class=\"btn\" onclick=\"window.print()\">Print / Save as PDF</button>\n  </div>\n  <div class=\"page\">\n    <div class=\"header\">\n      <div>\n        <h1 class=\"brand-title\">AbhayNayan \u00b7 Frontline Screening Assistant</h1>\n        <div class=\"brand-sub\">Point-of-Care Ophthalmic &amp; Systemic Biomarker Triage Report</div>\n      </div>\n      <div class=\"meta-right\">\n        <div><strong>Screening ID:</strong> ABN-20261019-9AFF60</div>\n        <div><strong>Timestamp:</strong> 2026-10-19 11:25:55 UTC</div>\n        <div><strong>Engine Mode:</strong> HYBRID_EYES_DEFY_ML (46.75 ms)</div>\n      </div>\n    </div>\n\n    <div class=\"grid-4\">\n      <div>\n        <div class=\"field-label\">Patient Name / ID</div>\n        <div class=\"field-val\">Sunita Devi (PT-DEMO-101)</div>\n      </div>\n      <div>\n        <div class=\"field-label\">Age / Gender</div>\n        <div class=\"field-val\">29 / Female</div>\n      </div>\n      <div>\n        <div class=\"field-label\">Frontline Worker ID</div>\n        <div class=\"field-val\">ASHA-BR-042</div>\n      </div>\n      <div>\n        <div class=\"field-label\">Screening Camp / PHC</div>\n        <div class=\"field-val\">Dayalpur PHC Camp</div>\n      </div>\n    </div>\n\n    <div class=\"triage-banner\">\n      <div>\n        <div class=\"triage-title\">Triage Decision: RED (Urgent PHC / Ophthalmic Referral)</div>\n        <div>High-priority screening alert flagged for Conjunctival Pallor (Suspected Anemia) (peak risk: 94.7%). Immediate clinical confirmation at Primary Health Centre advised.</div>\n      </div>\n      <div style=\"text-align:right;min-width:110px;\">\n        <div style=\"font-size:11px;text-transform:uppercase;\">Peak Risk Index</div>\n        <div style=\"font-size:24px;font-weight:800;\">94.7%</div>\n      </div>\n    </div>\n\n    <div class=\"iqc-strip\">\n      <div><strong>Optical Quality Grade:</strong> ADEQUATE</div>\n      <div><strong>Sharpness:</strong> 69.3/100</div>\n      <div><strong>Luminance:</strong> 207.2/255</div>\n      <div><strong>Corneal Glare:</strong> 0.0%</div>\n      <div><strong>Note:</strong> Capture meets clinical optical quality standards.</div>\n    </div>\n\n    <div class=\"section-title\">1. Condition Triage Probabilities &amp; Action Plan</div>\n    <table>\n      <thead>\n        <tr>\n          <th style=\"width:28%;\">Screened Condition</th>\n          <th style=\"width:16%;\">Risk Score</th>\n          <th style=\"width:12%;\">Severity</th>\n          <th style=\"width:10%;\">Conf.</th>\n          <th style=\"width:34%;\">Clinical Protocol / Next Step</th>\n        </tr>\n      </thead>\n      <tbody>\n        \n                <tr>\n                    <td><strong>Conjunctival Pallor (Suspected Anemia)</strong><br><span class=\"muted\">Conjunctival Erythema Index = 7.53 EI units</span></td>\n                    <td class=\"num\">\n                        <div class=\"prob-wrap\">\n                            <span><strong>94.7%</strong></span>\n                            <div class=\"prob-bar\"><div class=\"prob-fill\" style=\"width:94.7%;background:#DC2626;\"></div></div>\n                        </div>\n                    </td>\n                    <td><span class=\"status-pill\" style=\"color:#DC2626;border-color:#DC2626;\">HIGH</span></td>\n                    <td>83%</td>\n                    <td>Perform point-of-care digital hemoglobin (Hb) test and initiate iron/folate protocol if Hb &lt; 11 g/dL.</td>\n                </tr>\n                \n                <tr>\n                    <td><strong>Lenticular / Media Opacity (Cataract Screen)</strong><br><span class=\"muted\">Pupillary Reflectance Score = 38.9%</span></td>\n                    <td class=\"num\">\n                        <div class=\"prob-wrap\">\n                            <span><strong>16.9%</strong></span>\n                            <div class=\"prob-bar\"><div class=\"prob-fill\" style=\"width:16.9%;background:#059669;\"></div></div>\n                        </div>\n                    </td>\n                    <td><span class=\"status-pill\" style=\"color:#059669;border-color:#059669;\">LOW</span></td>\n                    <td>83%</td>\n                    <td>No immediate intervention required; continue routine wellness monitoring.</td>\n                </tr>\n                \n                <tr>\n                    <td><strong>Ocular Surface Hyperemia / Conjunctivitis</strong><br><span class=\"muted\">Bulbar Redness Index = 21.8</span></td>\n                    <td class=\"num\">\n                        <div class=\"prob-wrap\">\n                            <span><strong>11.6%</strong></span>\n                            <div class=\"prob-bar\"><div class=\"prob-fill\" style=\"width:11.6%;background:#059669;\"></div></div>\n                        </div>\n                    </td>\n                    <td><span class=\"status-pill\" style=\"color:#059669;border-color:#059669;\">LOW</span></td>\n                    <td>83%</td>\n                    <td>No immediate intervention required; continue routine wellness monitoring.</td>\n                </tr>\n                \n                <tr>\n                    <td><strong>Scleral Icterus (Suspected Jaundice)</strong><br><span class=\"muted\">Scleral Yellow Shift = 6.71 CIE b* idx</span></td>\n                    <td class=\"num\">\n                        <div class=\"prob-wrap\">\n                            <span><strong>8.2%</strong></span>\n                            <div class=\"prob-bar\"><div class=\"prob-fill\" style=\"width:8.2%;background:#059669;\"></div></div>\n                        </div>\n                    </td>\n                    <td><span class=\"status-pill\" style=\"color:#059669;border-color:#059669;\">LOW</span></td>\n                    <td>83%</td>\n                    <td>No immediate intervention required; continue routine wellness monitoring.</td>\n                </tr>\n                \n      </tbody>\n    </table>\n\n    <div class=\"section-title\">2. Quantitative Ophthalmic &amp; Colorimetric Biomarkers</div>\n    <table>\n      <thead>\n        <tr>\n          <th style=\"width:26%;\">Biomarker</th>\n          <th style=\"width:14%;\">Measured Value</th>\n          <th style=\"width:15%;\">Reference Range</th>\n          <th style=\"width:12%;\">Status</th>\n          <th style=\"width:33%;\">Clinical Interpretation</th>\n        </tr>\n      </thead>\n      <tbody>\n        \n                <tr>\n                    <td><strong>Conjunctival Erythema Index (Anemia Proxy)</strong><br><span class=\"muted\">ANM-EI</span></td>\n                    <td class=\"num\"><strong>7.53</strong> EI units</td>\n                    <td>18.0 \u2013 36.0 EI</td>\n                    <td><span class=\"status-pill\" style=\"color:#DC2626;border-color:#DC2626;\">ABNORMAL</span></td>\n                    <td>Calibrated EYES-DEFY Model Anemia Risk: 94% | Est. Hb: 11.1 g/dL</td>\n                </tr>\n                \n                <tr>\n                    <td><strong>Scleral Icterus Chromaticity (Jaundice Proxy)</strong><br><span class=\"muted\">SCL-ICT</span></td>\n                    <td class=\"num\"><strong>6.71</strong> CIE b* idx</td>\n                    <td>1.0 \u2013 10.5 idx</td>\n                    <td><span class=\"status-pill\" style=\"color:#059669;border-color:#059669;\">NORMAL</span></td>\n                    <td>Scleral chromaticity within normal avascular white reference range.</td>\n                </tr>\n                \n                <tr>\n                    <td><strong>Pupillary Media Opacity Score (Cataract Proxy)</strong><br><span class=\"muted\">PUP-OPC</span></td>\n                    <td class=\"num\"><strong>38.9</strong> % reflectance</td>\n                    <td>5.0 \u2013 46.0 %</td>\n                    <td><span class=\"status-pill\" style=\"color:#059669;border-color:#059669;\">NORMAL</span></td>\n                    <td>Clear dark pupillary aperture without gross leukocoria.</td>\n                </tr>\n                \n                <tr>\n                    <td><strong>Bulbar Vascular Hyperemia Index</strong><br><span class=\"muted\">OCU-HYP</span></td>\n                    <td class=\"num\"><strong>21.8</strong> Hyperemia idx</td>\n                    <td>2.0 \u2013 30.0 idx</td>\n                    <td><span class=\"status-pill\" style=\"color:#059669;border-color:#059669;\">NORMAL</span></td>\n                    <td>Calm ocular surface without abnormal vascular injection.</td>\n                </tr>\n                \n      </tbody>\n    </table>\n\n    <div class=\"section-title\">3. Recommended Frontline Follow-Up Checklist</div>\n    <ul style=\"margin: 6px 0 18px 18px; padding: 0;\">\n      <li>[Conjunctival Pallor (Suspected Anemia)] Perform point-of-care digital hemoglobin (Hb) test and initiate iron/folate protocol if Hb &lt; 11 g/dL.</li>\n    </ul>\n\n    <div class=\"footer\">\n      <div><strong>Disclaimer:</strong> Non-invasive frontline decision-support screening tool. Final diagnosis must be confirmed by a registered medical practitioner.</div>\n      <div><strong>Image SHA-256:</strong> 7aba306a35230353</div>\n    </div>\n  </div>\n</body>\n</html>"
+}
