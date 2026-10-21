@@ -153,6 +153,7 @@ The shared Drive folder holds five files: an anemia CSV with a direct `Name` fie
 - `docs/`: [API contract](docs/API_CONTRACT.md), [Android integration](docs/ANDROID_INTEGRATION.md), [model card](docs/ML_MODEL_CARD.md), [data provenance](docs/DATA_PROVENANCE.md), [token usage](docs/TOKEN_USAGE.md), [safety](docs/SAFETY.md), demo script, release notes, checklist.
 - `tests/`: Python (API, contract, core, Gemini) and Node (modules, JSDOM workflows, offline sync).
 - `android/`: stale snapshot of the Android source; canonical source is `AbhayNayan_apk`.
+- lab/
 
 ## Safety and data handling
 
