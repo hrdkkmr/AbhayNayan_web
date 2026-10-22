@@ -1,0 +1,146 @@
+{
+  "environment": {
+    "python": "3.13.7",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "packages": {
+      "numpy": "2.3.5",
+      "pandas": "2.2.3",
+      "scikit-learn": "1.6.1",
+      "opencv-python-headless": "4.11.0.86"
+    },
+    "git_commit": "1987a5e5bee9c5963d23b6c5420c4c7ace53eff6",
+    "git_dirty": true,
+    "feature_version": "cf-v1"
+  },
+  "model_load_ms": {
+    "hb-hgb-cf": 2.8,
+    "hb-ridge-cf": 0.8,
+    "njn-mnv3-logreg": 90.9,
+    "njn-logreg-cf": 1.4
+  },
+  "all_models_load_ms": 95.9,
+  "hemoglobin": {
+    "test_images": 54,
+    "served_ok": 44,
+    "rejected_by_code": {
+      "IMAGE_QUALITY_REJECTED": 10
+    },
+    "served_metrics_rounded_0.1": {
+      "n": 44,
+      "mae": 1.313636363636364,
+      "rmse": 1.8372410145254612,
+      "r2": 0.3805918371215712,
+      "bias": 0.29545454545454564
+    },
+    "training_side_metrics": {
+      "n": 54,
+      "mae": 1.2618487776504328,
+      "rmse": 1.7365387414175926,
+      "r2": 0.46595284498983025
+    },
+    "note": "Served metrics cover only images that pass the serving quality gate and use estimates rounded to 0.1 g/dL; the training-side evaluation covers every test image unrounded.",
+    "edge_metrics": {
+      "n": 44,
+      "mae": 1.2752808289534598,
+      "rmse": 1.6705598938320934,
+      "r2": 0.48788350791527646,
+      "bias": 0.08116423322947411
+    },
+    "edge_vs_backend": {
+      "mean_abs_diff_g_dl": 0.6931434673114221,
+      "max_abs_diff_g_dl": 1.9404627840326185,
+      "pearson_r": 0.8577094649855638,
+      "mean_diff_edge_minus_backend": -0.2142903122250715,
+      "screening_agreement_at_population_cutoff": 0.7727272727272727
+    },
+    "request_latency": {
+      "n": 44,
+      "median_ms": 14.22,
+      "p90_ms": 18.14,
+      "max_ms": 26.63
+    }
+  },
+  "neonatal_jaundice_class": {
+    "test_images": 189,
+    "served_auroc": 0.9199708454810496,
+    "training_side_auroc": 0.9199708454810496,
+    "served_at_threshold": {
+      "tp": 45,
+      "fn": 4,
+      "tn": 103,
+      "fp": 37,
+      "sensitivity": 0.9183673469387755,
+      "sensitivity_ci95": [
+        0.8081087229206011,
+        0.9677971825560651
+      ],
+      "specificity": 0.7357142857142858,
+      "specificity_ci95": [
+        0.6570842789810405,
+        0.8017542263657802
+      ],
+      "ppv": 0.5487804878048781,
+      "ppv_ci95": [
+        0.44130776049169684,
+        0.6518873005459147
+      ],
+      "npv": 0.9626168224299065,
+      "npv_ci95": [
+        0.9077995008865201,
+        0.9853681008320982
+      ]
+    },
+    "edge_auroc": 0.7931486880466473,
+    "edge_at_threshold": {
+      "tp": 42,
+      "fn": 7,
+      "tn": 74,
+      "fp": 66,
+      "sensitivity": 0.8571428571428571,
+      "sensitivity_ci95": [
+        0.7333229366148868,
+        0.9290357631822672
+      ],
+      "specificity": 0.5285714285714286,
+      "specificity_ci95": [
+        0.446228179529754,
+        0.6093886089971334
+      ],
+      "ppv": 0.3888888888888889,
+      "ppv_ci95": [
+        0.3022764875823746,
+        0.4831340369220255
+      ],
+      "npv": 0.9135802469135802,
+      "npv_ci95": [
+        0.8322008328652782,
+        0.9575074168919718
+      ]
+    },
+    "edge_vs_backend": {
+      "class_agreement": 0.6825396825396826,
+      "score_spearman": 0.568399722711033
+    },
+    "request_latency": {
+      "n": 189,
+      "median_ms": 39.91,
+      "p90_ms": 46.12,
+      "max_ms": 75.19
+    }
+  },
+  "rejected_request_latency": {
+    "n": 50,
+    "median_ms": 1.11,
+    "p90_ms": 1.56,
+    "max_ms": 1.94
+  },
+  "concurrency_njn_8_workers": {
+    "requests": 40,
+    "all_200": true,
+    "wall_ms": 546.0,
+    "throughput_rps": 73.26,
+    "scores_identical_to_sequential": true
+  },
+  "process_rss_mb": null
+}

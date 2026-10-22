@@ -29,6 +29,15 @@ CSV SHA-256: `fb346fb81c64972678596d5d7eb4ea386a49c932ed1d445e889b1fdb0ae2df81`.
 - **Neonatal ZIP:** the title names a published dataset intended for bilirubin estimation. If the publisher distributes labels separately, they are not in this copy.
 - **CSV:** origin unknown. The colour percentages were computed by an undocumented pipeline. Data-quality findings are in [ML_MODEL_CARD.md §2](ML_MODEL_CARD.md).
 
+### Local inspection, 22 October 2026
+
+The project lead placed copies of all five files in `Programming/AbhayNayan/`, outside both repositories. The two RARs were opened locally for the first time:
+
+- **CP-AnemiC:** 710 segmented conjunctiva PNGs plus `Anemia_Data_Collection_Sheet.xlsx` (`IMAGE_ID, HB_LEVEL, Severity, Age(Months), GENDER, REMARK, HOSPITAL, CITY/TOWN, MUNICIPALITY/DISTRICT, REGION, COUNTRY`). There are no names, but hospital, age and sex are present. 91 groups of byte-identical images carry conflicting labels.
+- **NJN:** `jaundice/` 200 and `normal/` 560 newborn photos, plus a colour-feature CSV and script. No bilirubin values, no IDs, no licence.
+
+Findings and usage: [dataset_requirements.md](dataset_requirements.md). Labelled manifests were written only to `data/private/` (gitignored); split files contain image IDs only. **The redistribution decision above is unchanged.** Trained artifacts derived from these files are gitignored and excluded from release ZIPs; only their SHA-256 pins (`models/MODEL_REGISTRY.json`) are tracked.
+
 ## 3. Why deleting `Name` would not be enough
 
 Removing the `Name` column does not anonymise the CSV:

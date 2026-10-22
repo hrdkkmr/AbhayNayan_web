@@ -155,7 +155,9 @@ class NeonatalJaundiceAdapter(ScreeningAdapter):
         return ModelCard('neonatal-bilirubin', self.screening_type, 'total serum bilirubin', 'mg/dL',
                          'DISABLED_NO_VALID_MODEL', None,
                          'No bilirubin-labelled ground truth is available; no model has been trained or validated.',
-                         'none', ('The neonatal image archive (478 JPEGs) contains no label table.',
+                         'none', ('The forehead/sternum archive (478 JPEGs) contains no label table.',
+                                  'NJN has only jaundice/normal folder classes; its research classifier (/api/ml/neonatal-jaundice-class) '
+                                  'is not a bilirubin model and never fills this adapter.',
                                   'An anemia model must never be reused for bilirubin.'))
 
     def infer(self, features: Any) -> dict[str, Any]:
@@ -188,4 +190,10 @@ CANDIDATE_MODELS: list[dict[str, Any]] = [
      'note': 'Notebook test R2 -0.345 on 10 test patients; no artifact.'},
     {'id': 'neonatal-bilirubin', 'status': 'DISABLED_NO_VALID_MODEL', 'target': 'bilirubin mg/dL', 'artifact': None,
      'note': 'No bilirubin labels exist for the available images.'},
+    {'id': 'hb-hgb-cf', 'status': 'EXPERIMENTAL_RESEARCH_ONLY', 'target': 'Hb g/dL', 'artifact': 'models/hb_hgb_cf_v1.json (not in Git)',
+     'note': 'Image model behind /api/ml/hemoglobin, off by default. Eyes-defy test MAE 1.26 g/dL, R2 0.47; R2 -0.25 on unseen '
+             'Ghanaian hospitals. See docs/model_cards/hb-hgb-cf.md.'},
+    {'id': 'njn-mnv3-logreg', 'status': 'EXPERIMENTAL_RESEARCH_ONLY', 'target': 'NJN dataset class (not bilirubin)',
+     'artifact': 'models/njn_mnv3_logreg_v1.onnx (not in Git)',
+     'note': 'Behind /api/ml/neonatal-jaundice-class, off by default. Test AUROC 0.92; labels undocumented, no patient IDs.'},
 ]

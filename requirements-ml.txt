@@ -1,0 +1,2 @@
+# Optional: ONNX Runtime for the server-side NJN research model (njn-mnv3-logreg). Without it that model reports RUNTIME_UNAVAILABLE.
+onnxruntime==1.31.0

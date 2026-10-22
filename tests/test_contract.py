@@ -321,9 +321,12 @@ def test_release_package_excludes_raw_data_and_weights():
     spec = importlib.util.spec_from_file_location('package_release', ROOT / 'scripts' / 'package_release.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    for rel in ['data/raw/Anemia_Dataset.csv', 'data/private/x.jpg', 'archive.zip', 'NJN.rar', 'models/m.tflite', 'models/m.keras', 'notes.xlsx', 'Anemia_Dataset.csv']:
+    for rel in ['data/raw/Anemia_Dataset.csv', 'data/private/x.jpg', 'archive.zip', 'NJN.rar', 'models/m.tflite', 'models/m.keras', 'notes.xlsx', 'Anemia_Dataset.csv',
+                'models/hb_ridge_cf_v1.json', 'models/njn_mnv3_logreg_v1.onnx', 'models/njn_logreg_cf_v1.json', '.venv-ml/x.py',
+                'ml/runs/hb-v1/test_predicted_vs_measured.png', 'data/private/hb_manifest.csv']:
         assert module.is_excluded(ROOT / rel), rel
-    for rel in ['data/DATASET_MANIFEST.json', 'models/anemia_color_baseline.json', 'docs/API_CONTRACT.md', 'data/derived/approved.csv']:
+    for rel in ['data/DATASET_MANIFEST.json', 'models/anemia_color_baseline.json', 'docs/API_CONTRACT.md', 'data/derived/approved.csv',
+                'models/MODEL_REGISTRY.json', 'ml/splits/njn_v1.json', 'ml/runs/hb-v1/final_results.json', 'tests/fixtures/ml_golden/golden_cf_v1.json']:
         assert not module.is_excluded(ROOT / rel), rel
 
 

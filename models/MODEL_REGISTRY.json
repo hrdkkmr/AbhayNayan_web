@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "note": "SHA-256 pins for served artifacts. Regenerate with scripts/ml/write_registry.py.",
+  "models": {
+    "hb-hgb-cf": {
+      "task": "hemoglobin",
+      "role": "backend",
+      "files": [
+        "hb_hgb_cf_v1.json"
+      ],
+      "run": "ml/runs/hb-v1",
+      "version": "1.0.0-research",
+      "validation_status": "RESEARCH_ONLY",
+      "sha256": {
+        "hb_hgb_cf_v1.json": "f2b1798fb074600f1d800d82c9b015d0f3a32c096ac49037dda2df1cd886af39"
+      }
+    },
+    "hb-ridge-cf": {
+      "task": "hemoglobin",
+      "role": "edge",
+      "files": [
+        "hb_ridge_cf_v1.json"
+      ],
+      "run": "ml/runs/hb-v1",
+      "version": "1.0.0-research",
+      "validation_status": "RESEARCH_ONLY",
+      "sha256": {
+        "hb_ridge_cf_v1.json": "a55048ccc38904ba37bbaa9e8020e106f0061a296bc2a45ef439e5f9473df093"
+      }
+    },
+    "njn-mnv3-logreg": {
+      "task": "neonatal_jaundice_class",
+      "role": "backend",
+      "files": [
+        "njn_mnv3_logreg_v1.json",
+        "njn_mnv3_logreg_v1.onnx"
+      ],
+      "run": "ml/runs/njn-v1",
+      "version": "1.0.0-research",
+      "validation_status": "RESEARCH_ONLY",
+      "sha256": {
+        "njn_mnv3_logreg_v1.json": "43087ed619d838e753e3a11f50391158d058579a40795452ae58fc688c40088c",
+        "njn_mnv3_logreg_v1.onnx": "22e0094d5e0e68d9ea3f0a7a477b27d884ce464bc3e16210bab3e1953902f094"
+      }
+    },
+    "njn-logreg-cf": {
+      "task": "neonatal_jaundice_class",
+      "role": "edge",
+      "files": [
+        "njn_logreg_cf_v1.json"
+      ],
+      "run": "ml/runs/njn-v1",
+      "version": "1.0.0-research",
+      "validation_status": "RESEARCH_ONLY",
+      "sha256": {
+        "njn_logreg_cf_v1.json": "742fa42bddef2f90ec22ac91a6b8cd23a62cd9d287d06e0d9aa4c5c571bb95cc"
+      }
+    }
+  }
+}

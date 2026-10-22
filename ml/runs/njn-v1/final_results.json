@@ -1,0 +1,185 @@
+{
+  "stage": "final",
+  "created_at": "2026-10-22T13:13:15.730757+00:00",
+  "selection": {
+    "recorded_at": "2026-10-22T13:08:29.152702+00:00",
+    "recorded_before_test_evaluation": true,
+    "edge": "logreg_cf",
+    "backend": "logreg_mnv3",
+    "basis": "ml/runs/njn-v1/cv_results.json (training split only): logreg_mnv3 AUROC 0.888, logreg_cf 0.803, hgb_cf 0.780. Edge uses colour features because they need no on-device runtime and are reproducible in Kotlin; backend uses the best CV model via ONNX Runtime (CPU).",
+    "caveat": "No patient IDs: same-infant images may straddle the split; an embedding nearest-neighbour probe was inconclusive."
+  },
+  "n_test": 189,
+  "test_positive_rate": 0.25925925925925924,
+  "results": {
+    "logreg_cf": {
+      "auroc": 0.7931486880466473,
+      "auroc_ci95": [
+        0.720685736677116,
+        0.8650217177984013
+      ],
+      "brier": 0.15092177614207838,
+      "threshold_from_training_oof": 0.13794119287050371,
+      "at_threshold": {
+        "tp": 42,
+        "fn": 7,
+        "tn": 74,
+        "fp": 66,
+        "sensitivity": 0.8571428571428571,
+        "sensitivity_ci95": [
+          0.7333229366148868,
+          0.9290357631822672
+        ],
+        "specificity": 0.5285714285714286,
+        "specificity_ci95": [
+          0.446228179529754,
+          0.6093886089971334
+        ],
+        "ppv": 0.3888888888888889,
+        "ppv_ci95": [
+          0.3022764875823746,
+          0.4831340369220255
+        ],
+        "npv": 0.9135802469135802,
+        "npv_ci95": [
+          0.8322008328652782,
+          0.9575074168919718
+        ]
+      },
+      "test_quality_gate_pass_rate": 1.0,
+      "reliability": [
+        {
+          "bin": "0.0-0.2",
+          "n": 104,
+          "mean_score": 0.0844540475450361,
+          "observed_rate": 0.11538461538461539
+        },
+        {
+          "bin": "0.2-0.4",
+          "n": 31,
+          "mean_score": 0.29242858632448326,
+          "observed_rate": 0.25806451612903225
+        },
+        {
+          "bin": "0.4-0.6",
+          "n": 26,
+          "mean_score": 0.4948189593784494,
+          "observed_rate": 0.34615384615384615
+        },
+        {
+          "bin": "0.6-0.8",
+          "n": 20,
+          "mean_score": 0.6980349218887189,
+          "observed_rate": 0.7
+        },
+        {
+          "bin": "0.8-1.0",
+          "n": 8,
+          "mean_score": 0.8789330800619615,
+          "observed_rate": 0.75
+        }
+      ]
+    },
+    "logreg_mnv3": {
+      "auroc": 0.9199708454810496,
+      "auroc_ci95": [
+        0.8688196662613417,
+        0.963085413778729
+      ],
+      "brier": 0.09220482744067615,
+      "threshold_from_training_oof": 0.18460722870229046,
+      "at_threshold": {
+        "tp": 45,
+        "fn": 4,
+        "tn": 103,
+        "fp": 37,
+        "sensitivity": 0.9183673469387755,
+        "sensitivity_ci95": [
+          0.8081087229206011,
+          0.9677971825560651
+        ],
+        "specificity": 0.7357142857142858,
+        "specificity_ci95": [
+          0.6570842789810405,
+          0.8017542263657802
+        ],
+        "ppv": 0.5487804878048781,
+        "ppv_ci95": [
+          0.44130776049169684,
+          0.6518873005459147
+        ],
+        "npv": 0.9626168224299065,
+        "npv_ci95": [
+          0.9077995008865201,
+          0.9853681008320982
+        ]
+      },
+      "test_quality_gate_pass_rate": 1.0,
+      "reliability": [
+        {
+          "bin": "0.0-0.2",
+          "n": 109,
+          "mean_score": 0.06169511973498872,
+          "observed_rate": 0.03669724770642202
+        },
+        {
+          "bin": "0.2-0.4",
+          "n": 30,
+          "mean_score": 0.28163514370409787,
+          "observed_rate": 0.26666666666666666
+        },
+        {
+          "bin": "0.4-0.6",
+          "n": 20,
+          "mean_score": 0.4934408137746085,
+          "observed_rate": 0.5
+        },
+        {
+          "bin": "0.6-0.8",
+          "n": 14,
+          "mean_score": 0.695395591035053,
+          "observed_rate": 0.7857142857142857
+        },
+        {
+          "bin": "0.8-1.0",
+          "n": 16,
+          "mean_score": 0.9337696399581745,
+          "observed_rate": 1.0
+        }
+      ]
+    }
+  },
+  "artifacts": {
+    "edge": {
+      "path": "models/njn_logreg_cf_v1.json",
+      "sha256": "742fa42bddef2f90ec22ac91a6b8cd23a62cd9d287d06e0d9aa4c5c571bb95cc"
+    },
+    "backend": {
+      "path": "models/njn_mnv3_logreg_v1.json",
+      "sha256": "43087ed619d838e753e3a11f50391158d058579a40795452ae58fc688c40088c",
+      "onnx": {
+        "path": "models/njn_mnv3_logreg_v1.onnx",
+        "sha256": "22e0094d5e0e68d9ea3f0a7a477b27d884ce464bc3e16210bab3e1953902f094",
+        "bytes": 3719535
+      }
+    }
+  },
+  "environment": {
+    "python": "3.13.7",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "packages": {
+      "numpy": "2.3.5",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.8.0",
+      "opencv-python-headless": "4.11.0.86",
+      "opencv-python": "5.0.0.93",
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "matplotlib": "3.10.0"
+    },
+    "git_commit": "1987a5e5bee9c5963d23b6c5420c4c7ace53eff6",
+    "git_dirty": true,
+    "feature_version": "cf-v1"
+  }
+}

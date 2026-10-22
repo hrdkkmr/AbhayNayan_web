@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0",
-  "inspected_at": "2026-10-10",
+  "inspected_at": "2026-10-10 (remote); 2026-10-22 (local copies, both RARs opened)",
   "source_folder": "https://drive.google.com/drive/folders/1IpWRau2BggdvbUQSX4mnbyiyfnlNfF6u",
   "inspection_method": "Folder listing; HTTP range reads of ZIP central directories (no member data downloaded); the CSV was downloaded to a temporary directory outside the repository, audited with aggregate-only output, then deleted.",
   "redistribution_policy": "No file below is approved for public redistribution. Nothing from this folder is committed to Git.",
@@ -12,7 +12,15 @@
       "size_bytes": 4445,
       "sha256": "fb346fb81c64972678596d5d7eb4ea386a49c932ed1d445e889b1fdb0ae2df81",
       "records": 104,
-      "schema": ["Name", "Sex", "%Red Pixel", "%Green pixel", "%Blue pixel", "Hb", "Anaemic"],
+      "schema": [
+        "Name",
+        "Sex",
+        "%Red Pixel",
+        "%Green pixel",
+        "%Blue pixel",
+        "Hb",
+        "Anaemic"
+      ],
       "target_labels": "Hb (g/dL, numeric, 104/104 present) and Anaemic (Yes/No)",
       "images": 0,
       "direct_identifiers": "Yes: Name (104 unique values)",
@@ -34,7 +42,12 @@
       "type": "application/zip",
       "size_bytes": 666269625,
       "members": 865,
-      "member_types": {"png": 644, "jpg": 218, "xlsx": 2, "docx": 1},
+      "member_types": {
+        "png": 644,
+        "jpg": 218,
+        "xlsx": 2,
+        "docx": 1
+      },
       "structure": "dataset anemia/{India (383 files), Italy (481 files)}/<patient number>/ with full-eye JPEG plus palpebral/forniceal segmentation PNGs; India.xlsx, Italy.xlsx, Dataset anemia.docx",
       "target_labels": "Hgb per patient in India.xlsx / Italy.xlsx (columns Number, Hgb, Gender, Age, Note per the Colab notebook output)",
       "images": 862,
@@ -51,14 +64,20 @@
       "type": "application/zip",
       "size_bytes": 8080717,
       "members": 1,
-      "member_types": {"rar": 1},
-      "structure": "Single nested 'CP-AnemiC dataset.rar' (8,281,392 bytes uncompressed in the ZIP); contents not listed",
-      "target_labels": "Unknown (RAR not opened)",
-      "direct_identifiers": "Unknown",
+      "member_types": {
+        "rar": 1
+      },
+      "structure": "Single nested 'CP-AnemiC dataset.rar' (8,281,392 bytes uncompressed in the ZIP); contents not listed. Inspected locally 2026-10-22: 710 RGBA PNGs (Anemic/ 424, Non-anemic/ 286) + Anemia_Data_Collection_Sheet.xlsx",
+      "target_labels": "HB_LEVEL g/dL per image (3.1-15.0); Severity/REMARK follow WHO 2011 child cut-offs",
+      "direct_identifiers": "None by name; hospital, town, region, age (months), sex; conjunctiva images",
       "provenance": "Title indicates a published conjunctival-pallor dataset from Ghana; source and terms not confirmed.",
       "license": "Unverified",
       "consent": "Unverified",
-      "approved_for_public_redistribution": false
+      "approved_for_public_redistribution": false,
+      "data_quality_notes": [
+        "91 groups of byte-identical images (303 rows) are labelled as different children; excluded.",
+        "7 perceptual near-duplicates excluded."
+      ]
     },
     {
       "name": "Neonatal Jaundice Assessment A Dataset of Forehead and Sternum Images for Bilirubin Estimation.zip",
@@ -66,7 +85,9 @@
       "type": "application/zip",
       "size_bytes": 32854665,
       "members": 478,
-      "member_types": {"jpg": 478},
+      "member_types": {
+        "jpg": 478
+      },
       "structure": "Forehead/ (239) and Sternum/ (239), files named <n>.jpg",
       "target_labels": "None present: no CSV/XLSX/JSON/text member. Filenames are sequential numbers and carry no bilirubin value.",
       "images": 478,
@@ -81,10 +102,10 @@
       "drive_file_id": "1upcvgpw-y5Xww1bI7CQmddyH5pdpdxnE",
       "type": "application/x-rar-compressed",
       "size_bytes": 76900495,
-      "members": null,
-      "structure": "Not inspected: RAR has no central directory readable by range request and no RAR tool was used",
-      "target_labels": "Unknown",
-      "direct_identifiers": "Unknown",
+      "members": 3,
+      "structure": "Inspected locally 2026-10-22: jaundice.zip (200 JPG), normal.zip (560 JPG), Pythons_Code_AI_Testing_Data.zip (train.csv of 761 colour-feature rows not linkable to files, one script)",
+      "target_labels": "Binary folder class jaundice/normal only; no bilirubin values; labelling rule undocumented",
+      "direct_identifiers": "Newborn photographs (sensitive health images); no patient IDs",
       "provenance": "Unknown",
       "license": "Unverified",
       "consent": "Unverified",

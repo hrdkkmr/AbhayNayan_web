@@ -6,7 +6,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Shared web/Android contract version. Bump MINOR for additive fields, MAJOR for breaking changes.
-API_CONTRACT_VERSION = '1.0.0'
+API_CONTRACT_VERSION = '1.1.0'
 
 ScreeningType = Literal['maternal_anemia', 'neonatal_jaundice']
 LanguageCode = Literal['en', 'hi', 'bho']

@@ -10,7 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_ROOT = "AbhayNayan"
 EXCLUDED_DIRS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache",
+    ".git", ".venv", ".venv-ml", "venv", "node_modules", "__pycache__", ".pytest_cache",
     ".ruff_cache", ".mypy_cache", ".gradle", ".idea", "build", "dist", "out",
     "target", "coverage", ".next", ".vite", ".turbo",
 }
@@ -44,6 +44,11 @@ def is_excluded(path: Path, include_android_apk: bool = False) -> bool:
     if relative.parts[:2] in {("data", "raw"), ("data", "private")}:
         return True
     if lower.endswith((".xlsx", ".zip", ".rar", ".7z", ".keras", ".h5", ".tflite", ".onnx", ".pt", ".pth")):
+        return True
+    # Trained research artifacts and per-patient plots are derived from unverified datasets (docs/ml_integration.md §4).
+    if relative.parts[:1] == ("models",) and lower.startswith(("hb_", "njn_")):
+        return True
+    if "predicted_vs_measured" in lower:
         return True
     if lower.endswith(".csv") and relative.parts[:2] != ("data", "derived"):
         return True

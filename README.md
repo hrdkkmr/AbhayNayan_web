@@ -31,15 +31,16 @@
 - **Referrals:** structured brief (reason, provenance, model version, result and brief timestamps, counselling source, newborn age), server PDF with Devanagari font fallback, and a local print view.
 - **FHIR R4-style bundle:** synthetic data marked `meta.security HTEST`, text-only codes, no fabricated components. Not ABDM-conformant.
 - **Data hygiene:** dataset manifest ([docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md), [data/DATASET_MANIFEST.json](data/DATASET_MANIFEST.json)), aggregate-only audit scripts, and `.gitignore` rules for raw data and model weights. No dataset file is committed.
-- **Tests (10 October 2026):** **119 Python tests**, **32 Node module tests** and **4 JSDOM workflow tests** pass via `scripts/verify_all.sh`, along with compileall, `pip check` and web syntax checks.
+- **Research image models (22 October 2026, off by default):** colour-feature hemoglobin models trained on Eyes-defy-anemia and a newborn jaundice/normal *dataset-class* classifier trained on NJN. They are served by `POST /api/ml/hemoglobin` and `POST /api/ml/neonatal-jaundice-class` only when `ABHAYNAYAN_ENABLE_EXPERIMENTAL_IMAGE_MODELS=1`, and run on-device in the Android app behind a developer toggle. Results are labelled `EXPERIMENTAL_RESEARCH_ONLY`. On the held-out test, Hb MAE is ≈ 1.3 g/dL on the same capture device, but the models are **worse than the mean on children from other hospitals**. Bilirubin stays disabled. See [ml_evaluation.md](docs/ml_evaluation.md) and [ml_integration.md](docs/ml_integration.md); the trained artifacts are not in Git.
+- **Tests (22 October 2026):** **193 Python tests** (66 for the ML pipeline), **32 Node module tests** and **4 JSDOM workflow tests** pass, along with compileall, `pip check` and web syntax checks.
 
 ## Important implementation limits
 
-- **No validated model.** Anemia candidates were checked against their sources:
+- **No validated model.** The October 22 research models are trained and evaluated on small public datasets only (see above). The 10 October findings for the earlier candidates still apply:
   - The Ridge colour baseline reproduces MAE 1.5041 g/dL, R² 0.3987 on 104 rows, versus MAE 1.95 for predicting the mean. Its inputs are not reproducible from the camera pipeline.
   - The notebook's MobileNetV3 scored R² −0.197 and its model file was never exported.
   - No bilirubin labels exist, so no jaundice model can be trained.
-- Browser camera frames and imported images stay in the browser. There is no image-upload endpoint.
+- Browser camera frames and imported images stay in the browser; the PWA never uploads them. The research image endpoints are disabled unless an operator sets the flag, and even then they process images in memory only.
 - There is no face or eye landmark model; ROI alignment is a manual guide. Flash/ambient correction is an experimental visualization only.
 - **No authentication** apart from the admin usage report. The SQLite store and browser storage are not encrypted. There is no EHR or ABDM integration. Use synthetic profiles only.
 - **Android:** canonical source is the separate [`AbhayNayan_apk`](https://github.com/shubhamcore/AbhayNayan_apk) repository; the `android/` folder here is a stale snapshot that does not compile as-is. See [docs/ANDROID_INTEGRATION.md](docs/ANDROID_INTEGRATION.md).
@@ -148,9 +149,10 @@ The shared Drive folder holds five files: an anemia CSV with a direct `Name` fie
 - `models/anemia_color_baseline.json`: research-only coefficients; runtime adapter disabled by default.
 - `scripts/`:
   - `train_anemia_baseline.py`, `audit_anemia_csv.py`, `inspect_dataset_archives.py`: aggregate-only research tooling;
+  - `ml/`: dataset preparation, training/evaluation (`train_hb.py`, `train_njn.py`), golden vectors, Android asset export, serving verification;
   - launchers, `verify_all.sh` and the release packager.
 - `data/`: dataset manifest only; raw data is ignored.
-- `docs/`: [API contract](docs/API_CONTRACT.md), [Android integration](docs/ANDROID_INTEGRATION.md), [model card](docs/ML_MODEL_CARD.md), [data provenance](docs/DATA_PROVENANCE.md), [token usage](docs/TOKEN_USAGE.md), [safety](docs/SAFETY.md), demo script, release notes, checklist.
+- `docs/`: [ML audit](docs/ml_audit.md), [ML architecture](docs/ml_architecture.md), [dataset requirements](docs/dataset_requirements.md), [ML evaluation](docs/ml_evaluation.md), [ML integration](docs/ml_integration.md), [model cards](docs/model_cards/), [API contract](docs/API_CONTRACT.md), [Android integration](docs/ANDROID_INTEGRATION.md), [model card](docs/ML_MODEL_CARD.md), [data provenance](docs/DATA_PROVENANCE.md), [token usage](docs/TOKEN_USAGE.md), [safety](docs/SAFETY.md), demo script, release notes, checklist.
 - `tests/`: Python (API, contract, core, Gemini) and Node (modules, JSDOM workflows, offline sync).
 - `android/`: stale snapshot of the Android source; canonical source is `AbhayNayan_apk`.
 - lab/

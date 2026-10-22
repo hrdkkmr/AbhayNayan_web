@@ -2,7 +2,9 @@
 
 Audit date: 10 October 2026. Sources inspected: this repository, the [Colab notebook](https://colab.research.google.com/drive/1E8TjWOY8JaLXKe7-plhOmzs0DofCmphM) (downloaded as `.ipynb`; its saved cell outputs were read, it was **not re-executed**), and the [shared Drive folder](https://drive.google.com/drive/folders/1IpWRau2BggdvbUQSX4mnbyiyfnlNfF6u) (see [DATA_PROVENANCE.md](DATA_PROVENANCE.md)).
 
-**Bottom line:** no model in any inspected source predicts hemoglobin (g/dL) or bilirubin (mg/dL) well enough to show to a person, and no bilirubin model exists at all. Both runtime adapters are `DISABLED_NO_VALID_MODEL`. The app shows only `DEMO_SYNTHETIC` fixtures.
+> **Update, 22 October 2026.** This card describes the 10 October audit. Since then, image models have been trained and evaluated on Eyes-defy-anemia, CP-AnemiC and NJN, and integrated behind off-by-default research flags. See [ml_audit.md](ml_audit.md), [ml_evaluation.md](ml_evaluation.md), [ml_integration.md](ml_integration.md) and [model_cards/](model_cards/). Bilirubin (mg/dL) remains `DISABLED_NO_VALID_MODEL`. The Ridge baseline and adapter described below are unchanged.
+
+**Bottom line (10 October):** no model in any inspected source predicts hemoglobin (g/dL) or bilirubin (mg/dL) well enough to show to a person, and no bilirubin model exists at all. Both runtime adapters are `DISABLED_NO_VALID_MODEL`. The app shows only `DEMO_SYNTHETIC` fixtures.
 
 ## 1. Decisions
 

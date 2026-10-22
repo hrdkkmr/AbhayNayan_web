@@ -3,7 +3,9 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import math
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -20,6 +23,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.inference import DEMO_CASES, SAFETY_NOTE, DemoInferenceModel, infer_demo
 from app.core.model_adapters import ADAPTERS, CANDIDATE_MODELS, InferenceError, adapter_for
+from app.ml import features as ml_features, imageio, quality as ml_quality
+from app.ml.registry import HB_PLAUSIBLE, IMAGE_MODELS_FLAG, REGISTRY, ModelError, flag_enabled
 from app.models.schemas import (
     API_CONTRACT_VERSION,
     DashboardResponse,
@@ -45,9 +50,9 @@ WEB_DIR = PROJECT_DIR / 'web-dashboard'
 FHIR = FHIRGenerator()
 DEMO_MODEL = DemoInferenceModel()
 logger = logging.getLogger('abhaynayan.api')
-ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {code: {'model': ErrorResponse} for code in (401, 403, 404, 409, 422, 500, 503)}
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {code: {'model': ErrorResponse} for code in (401, 403, 404, 409, 413, 415, 422, 500, 503)}
 STATUS_CODES = {400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 405: 'METHOD_NOT_ALLOWED',
-                409: 'CONFLICT', 422: 'VALIDATION_ERROR', 500: 'INTERNAL_ERROR', 503: 'SERVICE_UNAVAILABLE'}
+                409: 'CONFLICT', 413: 'PAYLOAD_TOO_LARGE', 415: 'UNSUPPORTED_MEDIA_TYPE', 422: 'VALIDATION_ERROR', 500: 'INTERNAL_ERROR', 503: 'SERVICE_UNAVAILABLE'}
 
 
 class ApiError(Exception):
@@ -140,7 +145,9 @@ def model_status() -> dict[str, Any]:
         'active_inference': DEMO_MODEL.get_model_info(),
         'adapters': adapters,
         'candidate_models': CANDIDATE_MODELS,
-        'optional_tflite': {'available': False, 'reason': 'No validated model artifact or model-specific tensor adapter is bundled.'},
+        'optional_tflite': {'available': False, 'reason': 'No TFLite model is served. Research image models are JSON/ONNX; see image_models.'},
+        'image_models': REGISTRY.status(),
+        'image_models_enabled': flag_enabled(),
         'research_baseline': _research_artifact(),
         'research_baseline_enabled_for_screening': ADAPTERS['maternal_anemia'].enabled(),
         'safety_note': SAFETY_NOTE,
@@ -163,7 +170,8 @@ def demo_cases() -> dict[str, Any]:
 @app.get('/api/pipeline', tags=['system'])
 def pipeline_status() -> dict[str, Any]:
     return {
-        'capture': {'mode': 'browser-local', 'backend_receives_images': False},
+        'capture': {'mode': 'browser-local', 'backend_receives_images': flag_enabled(),
+                    'image_retention': 'none: research image endpoints decode in memory and discard the bytes'},
         'roi': {'mode': 'manual-guide', 'landmarks_available': False},
         'features': {'mode': 'experimental-color-features', 'camera_color_calibrated': False},
         'inference': {'mode': 'DEMO', 'uses_patient_pixels_for_estimate': False,
@@ -345,8 +353,125 @@ def referral_pdf(referral_id: str) -> Response:
 
 @app.get('/api/vision/capabilities', tags=['vision'])
 def vision_capabilities() -> dict[str, Any]:
-    return {'quality_gate': True, 'opencv_features': True, 'image_upload_api': False,
-            'reason': 'Camera frames stay in the browser. Backend image uploads are intentionally disabled by default.'}
+    enabled = flag_enabled()
+    return {'quality_gate': True, 'opencv_features': True, 'image_upload_api': enabled,
+            'image_upload_endpoints': ['/api/ml/hemoglobin', '/api/ml/neonatal-jaundice-class'] if enabled else [],
+            'reason': ('Research image endpoints are enabled by the operator; images are processed in memory and never stored.' if enabled else
+                       'Camera frames stay in the browser. Backend image uploads are disabled by default '
+                       f'(operator flag {IMAGE_MODELS_FLAG}).')}
+
+
+# ----- research image models (contract 1.1.0) ---------------------------------------------------------
+# Raw PNG/JPEG request bodies, processed in memory only: bytes are never stored, logged or forwarded.
+
+IMAGE_REQUEST_BODY = {'content': {'image/png': {'schema': {'type': 'string', 'format': 'binary'}},
+                                  'image/jpeg': {'schema': {'type': 'string', 'format': 'binary'}}}, 'required': True}
+ML_SAFETY_NOTE = ('Experimental research output from a model trained on a small public dataset. Not a measurement or diagnosis; '
+                  'do not use for any care decision. Confirm with appropriate laboratory testing.')
+
+
+def _served_model(task: str):
+    try:
+        return REGISTRY.served(task)
+    except ModelError as exc:
+        raise ApiError(exc.status, exc.code, exc.message) from exc
+
+
+async def _read_bounded(request: Request) -> bytes:
+    too_large = f'Images larger than {imageio.MAX_BYTES // (1024 * 1024)} MB are not accepted.'
+    declared = request.headers.get('content-length')
+    if declared and declared.isdigit() and int(declared) > imageio.MAX_BYTES:
+        raise ApiError(413, 'IMAGE_TOO_LARGE', too_large)
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > imageio.MAX_BYTES:
+            raise ApiError(413, 'IMAGE_TOO_LARGE', too_large)
+        chunks.append(chunk)
+    return b''.join(chunks)
+
+
+def _run_image_model(task: str, data: bytes, content_type: str | None) -> dict[str, Any]:
+    t0 = time.perf_counter()
+    model = _served_model(task)
+    try:
+        image = imageio.decode(data, content_type)
+    except imageio.ImageInputError as exc:
+        raise ApiError(exc.status, exc.code, exc.message) from exc
+    t_decode = time.perf_counter()
+    quality = ml_quality.assess(image)
+    if not quality.passed:
+        raise ApiError(422, 'IMAGE_QUALITY_REJECTED', 'The image did not pass the quality checks; no prediction was made.',
+                       fields=[{'loc': ['image'], 'message': issue, 'type': 'quality'} for issue in quality.issues])
+    try:
+        fr = ml_features.extract(image)
+        raw = model.predict(image, fr)
+    except ml_features.FeatureError as exc:
+        raise ApiError(422, 'IMAGE_QUALITY_REJECTED', str(exc)) from exc
+    except ModelError as exc:
+        raise ApiError(exc.status, exc.code, exc.message) from exc
+    except Exception as exc:  # never fall back to a value
+        logger.error('image inference failed task=%s type=%s', task, type(exc).__name__)
+        raise ApiError(500, 'INFERENCE_FAILED', 'The model could not process this image; no value was produced.', retryable=True) from exc
+    if not math.isfinite(raw):
+        raise ApiError(500, 'INFERENCE_FAILED', 'The model returned a non-finite value; no value was produced.', retryable=True)
+    warnings = ['RESEARCH_ONLY_NOT_VALIDATED']
+    ood = model.out_of_range_features(fr.vector)
+    if ood:
+        warnings.append('INPUT_OUTSIDE_TRAINING_DISTRIBUTION')
+    meta = model.meta
+    result: dict[str, Any] = {
+        'task': task, 'status': 'OK', 'provenance': 'EXPERIMENTAL_RESEARCH_ONLY', 'synthetic': False,
+        'model_id': model.model_id, 'model_version': model.version, 'feature_version': ml_features.FEATURE_VERSION,
+        'warnings': warnings, 'out_of_distribution_features': ood[:10],
+        'quality': quality.as_dict(),
+        'input': {'width': int(image.shape[1]), 'height': int(image.shape[0]), 'channels': int(image.shape[2]),
+                  'valid_pixels': fr.valid_pixels, 'image_retained': False},
+        'intended_input': meta.get('intended_input') or meta.get('task'),
+        'evaluation_summary': meta.get('evaluation'),
+        'generated_at': datetime.now(timezone.utc).isoformat(),
+        'safety_note': ML_SAFETY_NOTE,
+    }
+    if task == 'hemoglobin':
+        lo, hi = HB_PLAUSIBLE
+        if not lo <= raw <= hi:
+            raise ApiError(422, 'OUTPUT_OUT_OF_RANGE', 'The model output was outside the physiological range and was discarded.')
+        result.update({'estimate': round(raw, 1), 'unit': 'g/dL', 'confidence': None,
+                       'interpretation': 'No anemia category is given: no threshold is validated for the intended population.'})
+    else:
+        if not 0.0 <= raw <= 1.0:
+            raise ApiError(500, 'INFERENCE_FAILED', 'The model returned an invalid score; no value was produced.', retryable=True)
+        thr = float(meta['operating_threshold'])
+        result.update({'score': round(raw, 4), 'unit': None, 'research_threshold': round(thr, 4),
+                       'dataset_class_at_research_threshold': 'jaundice_like' if raw >= thr else 'normal_like',
+                       'interpretation': ('Score for the NJN dataset class "jaundice". It is NOT a bilirubin value and the '
+                                          'threshold is a research operating point, not a clinical cut-off.')})
+    result['timing_ms'] = {'decode': round((t_decode - t0) * 1000, 2), 'total': round((time.perf_counter() - t0) * 1000, 2)}
+    return result
+
+
+@app.get('/api/ml/models', tags=['research-models'])
+def ml_models() -> dict[str, Any]:
+    return {'api_contract_version': API_CONTRACT_VERSION, 'enabled': flag_enabled(), 'flag': IMAGE_MODELS_FLAG,
+            'models': REGISTRY.status(), 'bilirubin_mg_dl_model': 'DISABLED_NO_VALID_MODEL (no measured bilirubin labels)',
+            'safety_note': ML_SAFETY_NOTE}
+
+
+@app.post('/api/ml/hemoglobin', tags=['research-models'], responses=ERROR_RESPONSES, openapi_extra={'requestBody': IMAGE_REQUEST_BODY})
+async def ml_hemoglobin(request: Request) -> dict[str, Any]:
+    """Research-only Hb (g/dL) from a segmented palpebral-conjunctiva image. Disabled unless the operator flag is set."""
+    _served_model('hemoglobin')  # fail fast (503) before reading the body
+    data = await _read_bounded(request)
+    return await run_in_threadpool(_run_image_model, 'hemoglobin', data, request.headers.get('content-type'))
+
+
+@app.post('/api/ml/neonatal-jaundice-class', tags=['research-models'], responses=ERROR_RESPONSES,
+          openapi_extra={'requestBody': IMAGE_REQUEST_BODY})
+async def ml_neonatal_jaundice_class(request: Request) -> dict[str, Any]:
+    """Research-only NJN dataset-class score (jaundice vs normal). Not bilirubin. Disabled unless the operator flag is set."""
+    _served_model('neonatal_jaundice_class')
+    data = await _read_bounded(request)
+    return await run_in_threadpool(_run_image_model, 'neonatal_jaundice_class', data, request.headers.get('content-type'))
 
 
 def _parse_iso(value: str | None, name: str) -> str | None:

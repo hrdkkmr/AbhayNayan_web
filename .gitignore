@@ -7,6 +7,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .venv/
+.venv-ml/
 venv/
 node_modules/
 backend/data/
@@ -36,3 +37,10 @@ data/private/
 *.onnx
 *.pt
 *.pth
+
+# Trained research model artifacts are derived from datasets whose licence/consent is unverified
+# (docs/DATA_PROVENANCE.md, docs/dataset_requirements.md). Only their SHA-256 pins
+# (models/MODEL_REGISTRY.json) are tracked; distribute the files through a controlled channel.
+models/hb_*.json
+models/njn_*
+ml/runs/**/*predicted_vs_measured*

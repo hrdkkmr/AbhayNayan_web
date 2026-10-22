@@ -1,0 +1,122 @@
+{
+  "stage": "cv",
+  "created_at": "2026-10-22T13:11:31.786416+00:00",
+  "seed": 20261022,
+  "split": "ml/splits/njn_v1.json",
+  "cv": "StratifiedGroupKFold(5, shuffle, seed) on training split; groups = dHash<=8 near-duplicate groups",
+  "n_train": 566,
+  "positive_rate": 0.26148409893992935,
+  "results": {
+    "logreg_cf": {
+      "auroc": 0.8051532393637657,
+      "brier": 0.15481628186641727,
+      "at_oof_threshold": {
+        "tp": 134,
+        "fn": 14,
+        "tn": 219,
+        "fp": 199,
+        "sensitivity": 0.9054054054054054,
+        "sensitivity_ci95": [
+          0.8474837467982458,
+          0.9428142448313758
+        ],
+        "specificity": 0.5239234449760766,
+        "specificity_ci95": [
+          0.4760459969267949,
+          0.5713651799002506
+        ],
+        "ppv": 0.4024024024024024,
+        "ppv_ci95": [
+          0.35113512574517947,
+          0.4558957539574695
+        ],
+        "npv": 0.9399141630901288,
+        "npv_ci95": [
+          0.901683652330758,
+          0.963874265477649
+        ]
+      },
+      "threshold": 0.13794119287050371
+    },
+    "hgb_cf": {
+      "auroc": 0.7800659511185828,
+      "brier": 0.15567218246309358,
+      "at_oof_threshold": {
+        "tp": 134,
+        "fn": 14,
+        "tn": 177,
+        "fp": 241,
+        "sensitivity": 0.9054054054054054,
+        "sensitivity_ci95": [
+          0.8474837467982458,
+          0.9428142448313758
+        ],
+        "specificity": 0.423444976076555,
+        "specificity_ci95": [
+          0.3769858085028491,
+          0.47129842565060515
+        ],
+        "ppv": 0.35733333333333334,
+        "ppv_ci95": [
+          0.3105025545455125,
+          0.40705739700792404
+        ],
+        "npv": 0.9267015706806283,
+        "npv_ci95": [
+          0.8807390079675169,
+          0.9558385917686106
+        ]
+      },
+      "threshold": 0.08273348793862786
+    },
+    "logreg_mnv3": {
+      "auroc": 0.8875759731022889,
+      "brier": 0.115550286118777,
+      "at_oof_threshold": {
+        "tp": 134,
+        "fn": 14,
+        "tn": 278,
+        "fp": 140,
+        "sensitivity": 0.9054054054054054,
+        "sensitivity_ci95": [
+          0.8474837467982458,
+          0.9428142448313758
+        ],
+        "specificity": 0.6650717703349283,
+        "specificity_ci95": [
+          0.6185050145041077,
+          0.708632105602507
+        ],
+        "ppv": 0.48905109489051096,
+        "ppv_ci95": [
+          0.430424196672653,
+          0.547980754034997
+        ],
+        "npv": 0.952054794520548,
+        "npv_ci95": [
+          0.921141603410876,
+          0.9712282523838381
+        ]
+      },
+      "threshold": 0.18460722870229046
+    }
+  },
+  "environment": {
+    "python": "3.13.7",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "packages": {
+      "numpy": "2.3.5",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.8.0",
+      "opencv-python-headless": "4.11.0.86",
+      "opencv-python": "5.0.0.93",
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "matplotlib": "3.10.0"
+    },
+    "git_commit": "1987a5e5bee9c5963d23b6c5420c4c7ace53eff6",
+    "git_dirty": true,
+    "feature_version": "cf-v1"
+  }
+}

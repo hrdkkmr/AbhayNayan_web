@@ -1,0 +1,14 @@
+{
+  "recorded_at": "2026-10-22T12:38:35.883148+00:00",
+  "recorded_before_test_evaluation": true,
+  "edge": {
+    "candidate": "ridge_cf",
+    "train_on": "eyes_defy_anemia"
+  },
+  "backend": {
+    "candidate": "hgb_cf",
+    "train_on": "eyes_defy_anemia"
+  },
+  "basis": "ml/runs/hb-v1/cv_results.json: within-dataset grouped CV. Eyes-defy-anemia ridge_cf MAE 1.320 R2 0.502, hgb_cf MAE 1.302 R2 0.504 vs mean MAE 2.027. Pooled training degraded Eyes-defy performance. CP-AnemiC cross-hospital CV: no candidate meaningfully beats the mean (best hgb_cf R2 0.125), so no CP-trained artifact is produced. MobileNetV3-Small frozen embeddings did not outperform colour features, so no CNN runtime is added to the app.",
+  "test_role": "Eyes-defy-anemia test = same-population held-out patients (primary). CP-AnemiC test = held-out hospitals, different population/device (external check)."
+}

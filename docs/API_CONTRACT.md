@@ -1,6 +1,6 @@
 # AbhayNayan API contract
 
-Contract version: `1.0.0` · Applies to: FastAPI backend in this repository, the PWA in `web-dashboard/`, and the Android app (`shubhamcore/AbhayNayan_apk`).
+Contract version: `1.1.0` · Applies to: FastAPI backend in this repository, the PWA in `web-dashboard/`, and the Android app (`shubhamcore/AbhayNayan_apk`).
 
 The machine-readable schema is served at `/openapi.json` (interactive at `/docs`). The Pydantic models in [`backend/app/models/schemas.py`](../backend/app/models/schemas.py) are the source of truth. If this document and the code disagree, the code wins; please report the mismatch. Examples below were captured from the running API.
 
@@ -27,6 +27,15 @@ The machine-readable schema is served at `/openapi.json` (interactive at `/docs`
 | New optional `context`, `inference_mode`, `features`, `request_id`, `counselling_mode`, `reason` | Additive |
 | New `GET /api/admin/usage` | Additive |
 | `GEMINI_MODEL` has no default; Gemini stays off until an operator sets it | Server configuration only |
+
+### Changes in 1.1.0 (additive)
+
+| Change | Compatibility |
+|---|---|
+| New research image endpoints `GET /api/ml/models`, `POST /api/ml/hemoglobin`, `POST /api/ml/neonatal-jaundice-class` (raw PNG/JPEG body). Off unless the operator sets `ABHAYNAYAN_ENABLE_EXPERIMENTAL_IMAGE_MODELS=1`; otherwise `503 MODEL_DISABLED` | Additive. Full contract in [ml_integration.md](ml_integration.md) |
+| New `image_models`, `image_models_enabled` in `GET /api/model/status`; `image_upload_endpoints` in `GET /api/vision/capabilities` | Additive response fields |
+| New error codes listed in [ml_integration.md §2](ml_integration.md); status codes 413 and 415 now use the error envelope | Additive |
+| `/api/screenings`, `/api/sync`, fixtures and the disabled bilirubin adapter | Unchanged |
 
 ## 2. Shared types
 

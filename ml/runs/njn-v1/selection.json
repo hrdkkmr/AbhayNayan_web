@@ -1,0 +1,8 @@
+{
+  "recorded_at": "2026-10-22T13:08:29.152702+00:00",
+  "recorded_before_test_evaluation": true,
+  "edge": "logreg_cf",
+  "backend": "logreg_mnv3",
+  "basis": "ml/runs/njn-v1/cv_results.json (training split only): logreg_mnv3 AUROC 0.888, logreg_cf 0.803, hgb_cf 0.780. Edge uses colour features because they need no on-device runtime and are reproducible in Kotlin; backend uses the best CV model via ONNX Runtime (CPU).",
+  "caveat": "No patient IDs: same-infant images may straddle the split; an embedding nearest-neighbour probe was inconclusive."
+}
