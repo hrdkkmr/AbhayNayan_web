@@ -80,6 +80,13 @@ def test_unknown_api_path_uses_envelope(client):
     assert response.json()['error']['status'] == 404
 
 
+@pytest.mark.parametrize('path', ['/api/counselling', '/api/sync', '/api/ml/hemoglobin', '/api/ml/neonatal-jaundice-class'])
+def test_get_on_post_only_api_route_is_405_not_spa_404(client, path):
+    response = client.get(path)
+    assert response.status_code == 405
+    assert response.json()['error']['code'] == 'METHOD_NOT_ALLOWED'
+
+
 def test_openapi_lists_all_contract_routes(client):
     paths = client.get('/openapi.json').json()['paths']
     for path in ['/api/health', '/api/model/status', '/api/demo/cases', '/api/screenings', '/api/screenings/{screening_id}',

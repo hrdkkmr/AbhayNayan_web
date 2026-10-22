@@ -519,6 +519,9 @@ if WEB_DIR.exists():
     @app.get('/{path:path}', include_in_schema=False)
     def spa_fallback(path: str) -> Response:
         # Only use the fallback for extensionless navigation paths; preserve API and file 404s.
+        if path.startswith('api/') and any(getattr(r, 'path', None) == f'/{path}' for r in app.routes):
+            # The catch-all would otherwise turn "wrong method on a real API route" into a 404.
+            raise ApiError(405, 'METHOD_NOT_ALLOWED', 'Method not allowed for this endpoint.')
         if path.startswith('api/') or '.' in Path(path).name:
             raise ApiError(404, 'NOT_FOUND', 'Not found.')
         return FileResponse(WEB_DIR / 'index.html')

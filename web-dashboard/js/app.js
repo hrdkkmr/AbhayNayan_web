@@ -188,6 +188,18 @@ function contextIsValid() {
   const hours = state.context.infantAgeHours;
   return Number.isInteger(hours) && hours >= 0 && hours <= 8760;
 }
+function contextErrorText() {
+  if (contextIsValid()) return '';
+  return state.screeningType === 'neonatal_jaundice'
+    ? 'Enter the newborn age as whole hours from 0 to 8760.'
+    : 'Gestational week must be a whole number from 1 to 45, or blank.';
+}
+function contextError() {
+  // Only shown once the field has a value: an empty required field just keeps Continue disabled.
+  const touched = state.screeningType === 'neonatal_jaundice' ? state.context.infantAgeHours !== null : true;
+  const text = touched ? contextErrorText() : '';
+  return `<span class="field-error" id="ctxError" role="alert"${text ? '' : ' hidden'}>${escapeHtml(text)}</span>`;
+}
 function screeningContext(patient) {
   // Only non-identifying context accepted by the API contract (ScreeningContext).
   return state.screeningType === 'neonatal_jaundice'
@@ -228,8 +240,8 @@ function renderWizard() {
       </div></div>
       <div class="panel panel-pad" style="margin-top:14px"><h2 class="panel-title">Screening details</h2>
         ${isNeonatal
-          ? `<div class="form-grid"><div class="form-field"><label for="ctxInfantAge">Newborn age in hours <span class="required">required</span></label><input class="input input-lg" id="ctxInfantAge" type="number" inputmode="numeric" min="0" max="8760" step="1" value="${escapeHtml(state.context.infantAgeHours ?? '')}" aria-describedby="ctxInfantAgeHelp"><span class="field-help" id="ctxInfantAgeHelp">Hours since birth. Newborn jaundice review depends on exact age in hours, so this is recorded with the screening.</span></div></div>`
-          : `<div class="form-grid"><div class="form-field"><label for="ctxGestWeek">Gestational week <span class="optional">optional</span></label><input class="input input-lg" id="ctxGestWeek" type="number" inputmode="numeric" min="1" max="45" step="1" value="${escapeHtml(state.context.gestationalWeek ?? '')}"><span class="field-help">Leave blank if unknown or not pregnant.</span></div></div>`}
+          ? `<div class="form-grid"><div class="form-field"><label for="ctxInfantAge">Newborn age in hours <span class="required">required</span></label><input class="input input-lg" id="ctxInfantAge" type="number" inputmode="numeric" min="0" max="8760" step="1" value="${escapeHtml(state.context.infantAgeHours ?? '')}" aria-describedby="ctxInfantAgeHelp"><span class="field-help" id="ctxInfantAgeHelp">Hours since birth. Newborn jaundice review depends on exact age in hours, so this is recorded with the screening.</span>${contextError()}</div></div>`
+          : `<div class="form-grid"><div class="form-field"><label for="ctxGestWeek">Gestational week <span class="optional">optional</span></label><input class="input input-lg" id="ctxGestWeek" type="number" inputmode="numeric" min="1" max="45" step="1" value="${escapeHtml(state.context.gestationalWeek ?? '')}"><span class="field-help">Leave blank if unknown or not pregnant.</span>${contextError()}</div></div>`}
         <p class="field-help" style="margin-top:8px">Only these fields and a pseudonymous ID can leave the device. No name, phone number, or photo is collected for sync.</p></div>
       <div class="row-between" style="margin-top:16px"><span class="card-note">Patient details are stored only in this browser. A non-demo profile cannot receive a synthetic fixture result.</span><button class="btn btn-primary" data-action="wizard-next" ${patient && contextValid ? '' : 'disabled'}>Continue to camera guide →</button></div>`;
   } else if (step === 2) {
@@ -381,6 +393,24 @@ function renderArchitecture() {
 const STATUS_TONE = { VALIDATED_FOR_INTENDED_USE: 'badge-blue', EXPERIMENTAL_RESEARCH_ONLY: 'badge-amber', DISABLED_NO_VALID_MODEL: 'badge-gray', DEMO_SYNTHETIC: 'badge-amber' };
 const statusBadge = (status) => `<span class="badge ${STATUS_TONE[status] || 'badge-gray'}">${escapeHtml(String(status || 'UNKNOWN').replaceAll('_', ' '))}</span>`;
 
+function imageModelsPanel(status) {
+  // Server research image models (contract 1.1.0). This dashboard never uploads images to them.
+  const models = status?.image_models || {};
+  const titles = { hemoglobin: 'Hb from a segmented conjunctiva crop (g/dL)', neonatal_jaundice_class: 'NJN dataset class score (not bilirubin)' };
+  const rows = Object.entries(titles).map(([task, title]) => {
+    const m = models[task] || {};
+    const test = m.evaluation?.held_out_test || {};
+    const summary = task === 'hemoglobin'
+      ? (test.eyes_defy_anemia ? `Held-out MAE ${Number(test.eyes_defy_anemia.mae).toFixed(2)} g/dL, R² ${Number(test.eyes_defy_anemia.r2).toFixed(2)}; R² ${Number(test.cp_anemic?.r2).toFixed(2)} on unseen Ghanaian hospitals` : '')
+      : (test.auroc !== undefined ? `Held-out AUROC ${Number(test.auroc).toFixed(2)}; labels undocumented, no patient IDs` : '');
+    const state_ = !status ? 'OFFLINE' : !status.image_models_enabled ? 'DISABLED' : m.loadable ? 'READY_EXPERIMENTAL' : 'UNAVAILABLE';
+    return `<div class="signal-row"><span>${escapeHtml(title)}${m.model_id ? ` · ${escapeHtml(m.model_id)}` : ''}${summary ? `<br><small>${escapeHtml(summary)}</small>` : ''}</span><strong>${escapeHtml(state_)}</strong></div>`;
+  }).join('');
+  return `<section class="panel panel-pad" style="margin-top:14px"><div class="row-between"><h2 class="panel-title">Research image models · server API</h2><span class="badge badge-amber">RESEARCH ONLY</span></div>
+    <p class="panel-copy">Experimental models behind <code>/api/ml/*</code>, off unless the operator sets the server flag. This dashboard never sends images to them, and their output never becomes a screening value.</p>
+    <div class="signal-list">${rows}</div><div class="card-note" style="margin-top:11px">Details: <a href="/docs/ml_evaluation.md" target="_blank" rel="noopener">evaluation</a> · <a href="/docs/ml_integration.md" target="_blank" rel="noopener">API and operation</a>.</div></section>`;
+}
+
 async function renderModel() {
   let status = null;
   try { status = await (await apiRequest('/api/model/status', { timeout: 1500 })).json(); } catch { /* documented facts below remain */ }
@@ -396,11 +426,12 @@ async function renderModel() {
   return `${pageHead('Evidence & limitations', 'Model and dataset audit', 'What models exist, what they were evaluated on, and why none produces a screening value in this build.', `<button class="btn btn-secondary" data-action="refresh-model">↻ Refresh</button>`)}
     <div class="model-banner"><div>⚠</div><div><strong>Active screening model: none</strong><span>Displayed values are deterministic synthetic fixtures labelled DEMO. No hemoglobin or bilirubin value is computed from camera pixels.</span></div></div>
     <div class="card-grid grid-2" style="margin-top:14px">${adapterCard('maternal_anemia', 'Maternal anemia adapter')}${adapterCard('neonatal_jaundice', 'Neonatal jaundice adapter')}</div>
+    ${imageModelsPanel(status)}
     <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">Ridge colour baseline (104-row CSV)</h2><span class="badge badge-amber">RESEARCH ONLY</span></div><p class="panel-copy">Five-fold cross-validation on three precomputed colour percentages, re-run during the audit: the figures reproduce. Every subject name is unique, so grouped CV adds no leakage protection; predicting the mean scores MAE 1.95 g/dL.</p>
       <div class="result-metrics"><div class="metric-card"><span>MAE</span><strong>${escapeHtml(metrics.mae_g_dl ?? '1.5041')}</strong><em>g/dL · internal CV</em></div><div class="metric-card"><span>RMSE</span><strong>${escapeHtml(metrics.rmse_g_dl ?? '1.9392')}</strong><em>g/dL · internal CV</em></div><div class="metric-card"><span>R²</span><strong>${escapeHtml(metrics.r2 ?? '0.3987')}</strong><em>Not clinical performance</em></div></div>
       <div class="card-note" style="margin-top:11px">The pipeline that produced the CSV features is undocumented, so app camera features are not valid inputs. 22 rows labelled non-anaemic have Hb below WHO sex-specific cut-offs, and 2 rows have Hb below 5 g/dL.</div></section>
       <section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">Notebook image experiments</h2><span class="badge badge-gray">NOT USABLE</span></div><p class="panel-copy">Eyes-defy-anemia data (Italy/India), patient-level split. No model file was exported to this project.</p>
-      <div class="signal-list"><div class="signal-row"><span>MobileNetV3-Small → Hb</span><strong>MAE 1.838 · R² −0.197</strong></div><div class="signal-row"><span>Colour random forest → Hb</span><strong>MAE 2.053 · R² −0.345</strong></div><div class="signal-row"><span>Test patients</span><strong>22 / 10</strong></div><div class="signal-row"><span>Unreadable images</span><strong>110 of 398</strong></div></div>
+      <div class="signal-list"><div class="signal-row"><span>MobileNetV3-Small → Hb</span><strong>MAE 1.838 · R² −0.197</strong></div><div class="signal-row"><span>Colour random forest → Hb</span><strong>MAE 2.053 · R² −0.345</strong></div><div class="signal-row"><span>Test patients</span><strong>22 / 10</strong></div><div class="signal-row"><span>Images the notebook skipped</span><strong>110 of 398 (readable with OpenCV)</strong></div></div>
       <div class="card-note" style="margin-top:11px">A negative R² means worse than always predicting the average Hb.</div></section></div>
     <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><h2 class="panel-title">Neonatal jaundice archive</h2><span class="badge badge-gray">NO LABELS</span></div><p class="panel-copy">478 JPEGs (239 forehead / 239 sternum) with numeric filenames and no serum-bilirubin table. No bilirubin model can be trained or evaluated, and none is shown.</p><div class="kpi-strip"><div><strong>478</strong><span>Images</span></div><div><strong>0</strong><span>Label files</span></div><div><strong>0</strong><span>Models</span></div></div></section>
       <section class="panel panel-pad"><h2 class="panel-title">All candidate models</h2>${candidates.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Candidate</th><th>Status</th><th>Note</th></tr></thead><tbody>${candidates.map((c) => `<tr><td class="table-strong">${escapeHtml(c.id)}</td><td>${statusBadge(c.status)}</td><td>${escapeHtml(c.note)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="panel-copy">Connect to the API to load the candidate list.</p>'}</section></div>
@@ -578,7 +609,7 @@ async function openLocalFile(file) {
     bitmap.close?.(); if (bitmap._abnObjectUrl) URL.revokeObjectURL(bitmap._abnObjectUrl);
     await setLocalImage(imageData, url, 'LOCAL_IMPORT', false);
     toast('Image analyzed in this browser only. Raw pixels were not stored with the screening.');
-  } catch (error) { toast(`Could not read image: ${error.message || 'unsupported format'}.`, 'error'); }
+  } catch (error) { toast(`Could not read image: ${String(error.message || 'unsupported format').replace(/[.\s]+$/, '')}.`, 'error'); }
 }
 
 async function useSyntheticImage() {
@@ -688,6 +719,8 @@ async function savePatientForm(form) {
   const isDemo = form.querySelector('[name="demo"]').checked;
   const hasConsent = form.querySelector('[name="consent"]').checked;
   if (!hasConsent) { toast('Consent is required to store a local profile.', 'warning'); return; }
+  // `required` accepts whitespace-only input, which would save a nameless profile.
+  if (!String(data.get('name') || '').trim()) { toast('Enter a display name for the profile.', 'warning'); form.querySelector('[name="name"]').focus(); return; }
   const id = await store.makePatientId();
   const patient = {
     id, name: String(data.get('name') || '').trim(), age: data.get('age') ? Number(data.get('age')) : null,
@@ -939,9 +972,15 @@ async function initialize() {
     if (event.target.id === 'ctxInfantAge' || event.target.id === 'ctxGestWeek') {
       // Update in place (no re-render) so the field keeps focus while typing.
       const key = event.target.id === 'ctxInfantAge' ? 'infantAgeHours' : 'gestationalWeek';
-      state.context[key] = parseIntInput(event.target.value);
+      // A half-typed number ("2e", "-") reads as '' but is not blank: badInput marks it invalid.
+      state.context[key] = event.target.validity?.badInput ? NaN : parseIntInput(event.target.value);
       const valid = contextIsValid();
       event.target.setAttribute('aria-invalid', String(!valid));
+      const error = $('#ctxError');
+      if (error) {
+        const text = event.target.value === '' && !event.target.validity?.badInput ? (valid ? '' : contextErrorText()) : contextErrorText();
+        error.textContent = text; error.hidden = !text;
+      }
       const next = $('[data-action="wizard-next"]');
       if (next) next.disabled = !(selectedPatient() && valid);
       return;

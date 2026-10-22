@@ -371,7 +371,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .page-actions .btn { flex:1; }
 }
 @media (max-width:560px) {
-  .grid-2,.form-grid { grid-template-columns:1fr; }
+  .grid-2,.form-grid { grid-template-columns:minmax(0,1fr); }
   .grid-4 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
   .stat-card { min-height:105px; padding:13px; }
   .stat-number { font-size:25px; }
@@ -405,6 +405,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .panel-title { margin:0 0 6px; color:var(--navy); font-size:16px; font-weight:800; }
 .panel-copy { margin:4px 0 12px; color:var(--body); font-size:14px; line-height:1.55; }
 .field-help { display:block; margin-top:5px; color:var(--body); font-size:13px; line-height:1.45; }
+.field-error { display:block; margin-top:5px; color:var(--red); font-size:13px; font-weight:600; line-height:1.45; }
+.field-error[hidden] { display:none; }
 .required { color:var(--red); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; margin-left:4px; }
 .optional { color:var(--muted); font-size:12px; font-weight:700; margin-left:4px; }
 .input-lg { min-height:48px; font-size:16px; }
