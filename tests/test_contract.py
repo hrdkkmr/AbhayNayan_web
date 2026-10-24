@@ -15,6 +15,7 @@ from app.models.schemas import API_CONTRACT_VERSION, AnemiaFeatureInput, Screeni
 from app.services import gemini, store
 from app.services.fhir import FHIRGenerator
 from app.core.inference import infer_demo
+from conftest import research_token_headers
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / 'docs' / 'API_CONTRACT.md')
@@ -25,7 +26,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(store, 'DB_PATH', tmp_path / 'test.sqlite3')
     monkeypatch.setattr(gemini, 'API_KEY', '')
     monkeypatch.delenv(model_adapters.EXPERIMENTAL_ANEMIA_FLAG, raising=False)
+    # MODEL mode needs a research-operator token since contract 1.2.0; DEMO flows ignore it.
+    headers = research_token_headers(monkeypatch)
     with TestClient(app) as test_client:
+        test_client.headers.update(headers)
         yield test_client
 
 

@@ -21,12 +21,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core import auth, config, prediction as P
+from app.core.auth import AuthError, Principal
 from app.core.inference import DEMO_CASES, SAFETY_NOTE, DemoInferenceModel, infer_demo
+from app.core.ratelimit import Limiter
 from app.core.model_adapters import ADAPTERS, CANDIDATE_MODELS, InferenceError, adapter_for
 from app.ml import features as ml_features, imageio, quality as ml_quality
-from app.ml.registry import HB_PLAUSIBLE, IMAGE_MODELS_FLAG, REGISTRY, ModelError, flag_enabled
+from app.ml.registry import HB_PLAUSIBLE, IMAGE_MODELS_FLAG, REGISTRY, SERVED as SERVED_BY_TASK, ModelError, flag_enabled
+from app.assistant import service as assistant
 from app.models.schemas import (
     API_CONTRACT_VERSION,
+    AssistantAskRequest,
     DashboardResponse,
     ErrorResponse,
     FHIRRequest,
@@ -50,17 +55,23 @@ WEB_DIR = PROJECT_DIR / 'web-dashboard'
 FHIR = FHIRGenerator()
 DEMO_MODEL = DemoInferenceModel()
 logger = logging.getLogger('abhaynayan.api')
-ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {code: {'model': ErrorResponse} for code in (401, 403, 404, 409, 413, 415, 422, 500, 503)}
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {code: {'model': ErrorResponse} for code in (401, 403, 404, 409, 413, 415, 422, 429, 500, 503)}
 STATUS_CODES = {400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 405: 'METHOD_NOT_ALLOWED',
-                409: 'CONFLICT', 413: 'PAYLOAD_TOO_LARGE', 415: 'UNSUPPORTED_MEDIA_TYPE', 422: 'VALIDATION_ERROR', 500: 'INTERNAL_ERROR', 503: 'SERVICE_UNAVAILABLE'}
+                409: 'CONFLICT', 413: 'PAYLOAD_TOO_LARGE', 415: 'UNSUPPORTED_MEDIA_TYPE', 422: 'VALIDATION_ERROR', 429: 'RATE_LIMITED',
+                500: 'INTERNAL_ERROR', 503: 'SERVICE_UNAVAILABLE'}
+RESEARCH_ROLE = 'research_operator'
+_limiter: Limiter | None = None
 
 
 class ApiError(Exception):
     """A client-safe error with a stable contract code."""
 
-    def __init__(self, status: int, code: str, message: str, retryable: bool = False, fields: list[dict[str, Any]] | None = None) -> None:
+    def __init__(self, status: int, code: str, message: str, retryable: bool = False, fields: list[dict[str, Any]] | None = None,
+                 headers: dict[str, str] | None = None, extra: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.status, self.code, self.message, self.retryable, self.fields = status, code, message, retryable, fields or []
+        self.headers = headers
+        self.extra = extra
 
 
 def error_body(status: int, code: str, message: str, retryable: bool = False, fields: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -74,8 +85,20 @@ def validation_fields(errors: list[Any]) -> list[dict[str, Any]]:
              'type': str(e.get('type', ''))} for e in errors]
 
 
+def limiter() -> Limiter:
+    global _limiter
+    if _limiter is None:
+        s = config.get()
+        _limiter = Limiter(s.image_rate_per_minute, s.image_rate_per_day, s.image_max_concurrent, s.auth_failures_per_minute_per_ip)
+    return _limiter
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global _limiter
+    # Invalid production configuration stops the start here (names and codes only; values are never printed).
+    config.validate_for_startup(config.reload())
+    _limiter = None
     store.init_db()
     yield
 
@@ -103,7 +126,16 @@ async def contract_header(request: Request, call_next):
 
 @app.exception_handler(ApiError)
 async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
-    return JSONResponse(status_code=exc.status, content=error_body(exc.status, exc.code, exc.message, exc.retryable, exc.fields))
+    content = error_body(exc.status, exc.code, exc.message, exc.retryable, exc.fields)
+    if exc.extra:
+        content.update(exc.extra)  # e.g. `prediction`: the contract 2.0 envelope of a refused or failed inference
+    return JSONResponse(status_code=exc.status, content=content, headers=exc.headers)
+
+
+@app.exception_handler(AuthError)
+async def auth_error_handler(_: Request, exc: AuthError) -> JSONResponse:
+    headers = {'WWW-Authenticate': 'Bearer'} if exc.status == 401 else None
+    return JSONResponse(status_code=exc.status, content=error_body(exc.status, exc.code, exc.message), headers=headers)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -128,6 +160,124 @@ async def unexpected_error_handler(_: Request, exc: Exception) -> JSONResponse:
 @app.get('/api/health', response_model=HealthResponse, tags=['system'])
 def health() -> HealthResponse:
     return HealthResponse(gemini_configured=gemini.gemini_configured(), gemini_model_configured=gemini.model_configured())
+
+
+# ----- authentication and rate limiting for research inference (docs/security_and_permissions.md §5, §7) -----
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else 'unknown'
+
+
+def authorize_research(request: Request) -> Principal:
+    """Verified research-operator identity, or a contract error. Order: IP failure limit → token → role.
+
+    Identity comes only from a server-signed bearer token. Client headers, body fields and the
+    `patient.demo` flag are never consulted. The operator flag remains a separate kill switch.
+    """
+    lim, ip = limiter(), _client_ip(request)
+    blocked = lim.failures_exceeded(ip)
+    if not blocked.allowed:
+        raise ApiError(429, 'RATE_LIMITED', 'Too many requests. Try again later.', retryable=True,
+                       headers={'Retry-After': str(blocked.retry_after_seconds)})
+    try:
+        principal = auth.verify(auth.bearer_token(request.headers.get('authorization')))
+    except AuthError as exc:
+        if exc.status == 401:
+            lim.record_failure(ip)
+        raise
+    if not principal.has_role(RESEARCH_ROLE):
+        raise ApiError(403, 'FORBIDDEN', 'This account is not permitted to run research models.')
+    return principal
+
+
+@asynccontextmanager
+async def _rate_limited(principal: Principal):
+    lim = limiter()
+    decision = lim.acquire(principal.user_id)
+    if not decision.allowed:
+        raise ApiError(429, 'RATE_LIMITED', 'Too many requests. Try again later.', retryable=True,
+                       headers={'Retry-After': str(decision.retry_after_seconds)})
+    try:
+        yield
+    finally:
+        lim.release(principal.user_id)
+
+
+def _rate_limited_sync(principal: Principal):
+    """Synchronous variant for def-routes: returns a release callback."""
+    lim = limiter()
+    decision = lim.acquire(principal.user_id)
+    if not decision.allowed:
+        raise ApiError(429, 'RATE_LIMITED', 'Too many requests. Try again later.', retryable=True,
+                       headers={'Retry-After': str(decision.retry_after_seconds)})
+    return lambda: lim.release(principal.user_id)
+
+
+# ----- readiness -------------------------------------------------------------------------------
+
+def _integration_state(key_set: bool, model_set: bool) -> str:
+    if key_set and model_set:
+        return 'configured'
+    return 'misconfigured' if key_set or model_set else 'not_configured'
+
+
+@app.get('/api/ready', tags=['system'])
+def ready() -> JSONResponse:
+    """Component readiness. 200 = operational (`ready` or `degraded`); 503 = `not_ready`.
+
+    Operational does not mean any clinical inference is available: `clinical_inference` reports that
+    separately, and today it is always disabled (no validated model exists). Codes only; no paths or secrets.
+    """
+    settings = config.get()
+    errors = [p.as_dict() for p in settings.problems if p.severity == 'error']
+    warnings = [p.as_dict() for p in settings.problems if p.severity == 'warning']
+    configuration = {'status': 'invalid' if errors else ('warnings' if warnings else 'ok'), 'environment': settings.environment,
+                     'problems': errors + warnings}
+    try:
+        store.ping()
+        database = {'status': 'ok', 'kind': 'sqlite'}
+    except Exception:  # noqa: BLE001 - reported as a state, details never exposed
+        database = {'status': 'unavailable', 'kind': 'sqlite'}
+    models = {mid: REGISTRY.diagnose(mid) for mid in REGISTRY.registered_ids()}
+    for mid, entry in models.items():
+        entry['served_by_backend'] = mid in set(SERVED_BY_TASK.values())
+    research_on = flag_enabled()
+    validated = [a.screening_type for a in ADAPTERS.values() if a.card().status == 'VALIDATED_FOR_INTENDED_USE']
+    gemini_state = _integration_state(settings.gemini_key_set, settings.gemini_model_set)
+    integrations = {
+        'authentication': 'configured' if settings.auth_configured else 'not_configured',
+        'gemini': gemini_state,
+        'admin_usage_report': 'configured' if settings.admin_token_set else 'not_configured',
+        'rate_limiter': {'backend': 'memory', 'scope': 'single_process', 'workers_declared': settings.worker_count},
+        'assistant': {'enabled': assistant.enabled(), 'provider': assistant.provider(),
+                      'agent37': assistant.agent37.config_problem() or 'configured'},
+    }
+    model_faults = [e for e in models.values() if e.get('reason_code') in ('MODEL_INTEGRITY_FAILED', 'MODEL_INCOMPATIBLE')]
+    if (errors and settings.environment == 'production') or database['status'] != 'ok':
+        status = 'not_ready'
+    elif model_faults or gemini_state == 'misconfigured' or errors:
+        status = 'degraded'
+    else:
+        status = 'ready'
+    body = {
+        'status': status,
+        'api_contract_version': API_CONTRACT_VERSION,
+        'checked_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'clinical_inference': {'status': 'enabled' if validated else 'disabled',
+                               'reason_code': None if validated else 'NO_VALIDATED_MODEL_FOR_TASK',
+                               'validated_tasks': validated},
+        'components': {
+            'application': {'status': 'ok'},
+            'configuration': configuration,
+            'database': database,
+            'research_inference': {'status': 'enabled' if research_on else 'disabled', 'flag': IMAGE_MODELS_FLAG,
+                                   'requires_role': RESEARCH_ROLE,
+                                   'note': 'Research-only models; never clinical output.'},
+            'models': models,
+            'integrations': integrations,
+        },
+    }
+    return JSONResponse(status_code=503 if status == 'not_ready' else 200, content=body)
 
 
 def _research_artifact() -> dict[str, Any] | None:
@@ -188,7 +338,18 @@ def _bundle_for(record_like: dict[str, Any], screening_id: str) -> dict[str, Any
 
 
 @app.post('/api/screenings', response_model=ScreeningRecord, tags=['screenings'], responses=ERROR_RESPONSES)
-def create_screening(request: ScreeningCreateRequest) -> ScreeningRecord:
+def create_screening(request: ScreeningCreateRequest, http_request: Request) -> ScreeningRecord:
+    if request.inference_mode != 'DEMO':
+        # MODEL mode reaches research adapters: same authentication, role and rate limit as the image routes.
+        release = _rate_limited_sync(authorize_research(http_request))
+        try:
+            return _create_screening(request)
+        finally:
+            release()
+    return _create_screening(request)
+
+
+def _create_screening(request: ScreeningCreateRequest) -> ScreeningRecord:
     if request.inference_mode == 'DEMO':
         # The API can only attach its fixed synthetic fixtures to an explicitly demo profile.
         if not request.patient.demo:
@@ -293,6 +454,24 @@ async def counselling(request: GeminiCounselRequest) -> GeminiCounselResponse:
     return await gemini.counsel(request)
 
 
+@app.get('/api/assistant', tags=['assistant'])
+def assistant_status() -> dict[str, Any]:
+    """Assistant availability and knowledge-base version. Never includes credentials or the provider URL."""
+    return assistant.status()
+
+
+@app.post('/api/assistant/ask', tags=['assistant'], responses=ERROR_RESPONSES)
+async def assistant_ask(body: AssistantAskRequest, request: Request) -> dict[str, Any]:
+    """General, non-clinical information from the curated knowledge base (docs/build2026/assistant.md)."""
+    if not assistant.enabled():
+        raise ApiError(503, 'ASSISTANT_DISABLED', 'The help assistant is switched off on this server.', retryable=False)
+    decision = assistant.check_rate(_client_ip(request))
+    if not decision.allowed:
+        raise ApiError(429, 'RATE_LIMITED', 'Too many questions. Try again in a minute.', retryable=True,
+                       headers={'Retry-After': str(decision.retry_after_seconds)})
+    return await assistant.ask(body.question)
+
+
 @app.post('/api/fhir', tags=['interop'], responses=ERROR_RESPONSES)
 def fhir_bundle(request: FHIRRequest) -> dict[str, Any]:
     if not request.result.synthetic:
@@ -366,6 +545,8 @@ def vision_capabilities() -> dict[str, Any]:
 
 IMAGE_REQUEST_BODY = {'content': {'image/png': {'schema': {'type': 'string', 'format': 'binary'}},
                                   'image/jpeg': {'schema': {'type': 'string', 'format': 'binary'}}}, 'required': True}
+# Tasks whose model is not rotation-invariant (cnn-v1). cf-v1 colour features are nearly invariant (audit §5.2).
+ORIENTATION_SENSITIVE_TASKS = frozenset({'neonatal_jaundice_class'})
 ML_SAFETY_NOTE = ('Experimental research output from a model trained on a small public dataset. Not a measurement or diagnosis; '
                   'do not use for any care decision. Confirm with appropriate laboratory testing.')
 
@@ -378,55 +559,170 @@ def _served_model(task: str):
 
 
 async def _read_bounded(request: Request) -> bytes:
-    too_large = f'Images larger than {imageio.MAX_BYTES // (1024 * 1024)} MB are not accepted.'
+    limit = config.get().max_image_bytes
+    too_large = 'The image is larger than this server accepts.'
     declared = request.headers.get('content-length')
-    if declared and declared.isdigit() and int(declared) > imageio.MAX_BYTES:
+    if declared and declared.isdigit() and int(declared) > limit:
         raise ApiError(413, 'IMAGE_TOO_LARGE', too_large)
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > imageio.MAX_BYTES:
+        if size > limit:
             raise ApiError(413, 'IMAGE_TOO_LARGE', too_large)
         chunks.append(chunk)
     return b''.join(chunks)
 
 
+# Contract 2.0 task per research route, and the only body site each model accepts (docs/prediction_contract.md §5).
+TASK_OF = {'hemoglobin': 'hemoglobin_from_palpebral_conjunctiva', 'neonatal_jaundice_class': 'newborn_jaundice_dataset_class'}
+ACCEPTED_SITE = {'hemoglobin': 'palpebral_conjunctiva_segmented', 'neonatal_jaundice_class': 'newborn_skin_whole_view'}
+SOFTWARE_VERSION = f'backend-api-{API_CONTRACT_VERSION}'
+# Body-site verifier: returns True (verified), False (checked and failed) or None (no verifier). **None is installed**:
+# no licensed, validated detector exists, and masked random noise passes every other gate (20/20 in the Phase 5 probe).
+# So the research routes fail closed with MODALITY_UNVERIFIED. Tests replace this to exercise the model path.
+BODY_SITE_VERIFIER = lambda site, image: None  # noqa: E731
+RUNTIME_OF = {'GRADIENT_BOOSTED_TREES_JSON': 'python-trees-json', 'LINEAR_COLOUR_REGRESSOR': 'python-linear-json',
+              'LOGISTIC_COLOUR_CLASSIFIER': 'python-linear-json', 'ONNX_CNN_CLASSIFIER': 'onnxruntime-cpu'}
+
+
+class _Outcome:
+    """Collects what is known about one research request and turns it into a valid contract 2.0 envelope."""
+
+    def __init__(self, task: str) -> None:
+        self.task, self.site = task, 'unknown'
+        self.image, self.orientation = None, None
+        self.verification = {'method': 'protocol_declared', 'status': 'unverified'}
+        self.quality = {'status': 'not_assessed', 'rules_version': 'quality-server-1.0.0', 'checks': []}
+        self.compat = {'status': 'not_assessed', 'rules_version': 'compat-server-1.0.0', 'checks': []}
+
+    def input_info(self) -> dict[str, Any]:
+        img, o = self.image, self.orientation
+        return {'modality': 'photo', 'body_site': self.site,
+                'body_site_verification': dict(self.verification),
+                'source': 'upload', 'capture_protocol': None,
+                'orientation': {'exif_tag': o.exif_tag if o is not None and o.exif_tag in range(1, 9) else None,
+                                'applied': o.applied if o is not None else 'unknown'},
+                'width': int(img.shape[1]) if img is not None else 0, 'height': int(img.shape[0]) if img is not None else 0,
+                'valid_pixel_count': 0}
+
+    def envelope(self, status: str, reason: str | None, estimate=None, model=None, source='none', warnings=None) -> dict[str, Any]:
+        return P.build(status=status, reason_code=reason, task=TASK_OF[self.task], input_info=self.input_info(),
+                       quality=self.quality, compatibility=self.compat, estimate=estimate, model=model, source=source,
+                       warnings=warnings or [], software_version=SOFTWARE_VERSION)
+
+    def refuse(self, http: int, legacy_code: str, message: str, reason: str, *, error: bool = False, retryable: bool = False,
+               fields=None, warnings=None) -> ApiError:
+        env = self.envelope('error' if error else 'unable_to_estimate', reason, warnings=warnings)
+        return ApiError(http, legacy_code, message, retryable=retryable, fields=fields, extra={'prediction': env})
+
+
+def _model_ref(model) -> dict[str, Any]:
+    meta = model.meta
+    return {'model_id': model.model_id, 'model_version': model.version, 'artifact_sha256': dict(model.sha256),
+            'feature_contract': meta.get('feature_version') or 'cnn-v1', 'runtime': RUNTIME_OF.get(meta.get('artifact_type'), 'unknown'),
+            'model_status': 'research_only', 'model_card_ref': f'docs/model_cards/{model.model_id}.md'}
+
+
 def _run_image_model(task: str, data: bytes, content_type: str | None) -> dict[str, Any]:
+    """Gate order (contract §4): decode → orientation → modality/region → quality → compatibility (distribution) → inference
+    → output validation. Every refusal after the model check carries `prediction` (status unable_to_estimate or error);
+    no value is ever returned with an error."""
     t0 = time.perf_counter()
     model = _served_model(task)
+    out = _Outcome(task)
     try:
-        image = imageio.decode(data, content_type)
+        decoded = imageio.decode_image(data, content_type, config.get().max_image_bytes)
     except imageio.ImageInputError as exc:
-        raise ApiError(exc.status, exc.code, exc.message) from exc
+        raise out.refuse(exc.status, exc.code, exc.message, P.LEGACY_TO_REASON.get(exc.code, 'INPUT_DECODE_FAILED')) from exc
+    image = decoded.pixels
+    out.image, out.orientation = image, decoded.orientation
+    orientation_warning = decoded.orientation.status == 'invalid'
+    if orientation_warning and task in ORIENTATION_SENSITIVE_TASKS:
+        # The CNN is not rotation-invariant (audit M2): an unreadable orientation tag means the input is unknown.
+        raise out.refuse(422, 'ORIENTATION_UNKNOWN', 'The image orientation metadata could not be read; no prediction was made.',
+                         'MODALITY_UNVERIFIED')
+
+    # Modality / region. Research operators upload dataset images; the server cannot verify anatomy, so only the image
+    # *form* each model was trained on is accepted: Hb models need an expert-segmented crop (transparent background);
+    # the NJN model was trained on whole opaque newborn photos. App-style rectangle crops are refused (audit H3).
+    masked = image.shape[2] == 4 and bool((image[..., 3] < ml_features.ALPHA_MIN).any())
+    region_check = P.check('segmentation_mask_present', masked, task == 'hemoglobin', '==', masked == (task == 'hemoglobin'))
+    out.compat = {**out.compat, 'checks': [region_check]}
+    if task == 'hemoglobin' and not masked:
+        out.compat['status'] = 'incompatible'
+        raise out.refuse(422, 'TARGET_REGION_INCOMPATIBLE', 'This model needs an expert-segmented conjunctiva image (transparent '
+                         'background). Rectangle crops and whole photos are not compatible; no prediction was made.', 'TARGET_REGION_INCOMPATIBLE')
+    if task != 'hemoglobin' and masked:
+        out.compat['status'] = 'incompatible'
+        raise out.refuse(422, 'MODALITY_UNSUPPORTED', 'This model was trained on whole newborn photos; masked crops are not '
+                         'compatible. No prediction was made.', 'MODALITY_UNSUPPORTED')
+    out.site = ACCEPTED_SITE[task]
+
     t_decode = time.perf_counter()
     quality = ml_quality.assess(image)
+    m = quality.metrics
+    out.quality = {'status': 'passed' if quality.passed else 'failed', 'rules_version': 'quality-server-1.0.0', 'checks': [
+        P.check('valid_pixels', m['valid_pixels'], ml_features.MIN_VALID_PIXELS, '>=', 'TOO_FEW_USABLE_PIXELS' not in quality.issues),
+        P.check('valid_fraction', m['valid_fraction'], ml_quality.MIN_VALID_FRACTION, '>=', 'TARGET_REGION_TOO_SMALL_OR_DARK' not in quality.issues),
+        P.check('clipped_fraction', m['clipped_fraction'], ml_quality.MAX_CLIPPED_FRACTION, '<=', 'OVEREXPOSED_OR_GLARE' not in quality.issues),
+        P.check('mean_brightness', m['mean_brightness'], ml_quality.MIN_MEAN_V, '>=', 'TOO_DARK' not in quality.issues),
+        P.check('sharpness_laplacian_var', m['sharpness'], ml_quality.MIN_SHARPNESS, '>=', 'BLURRED_OR_FLAT' not in quality.issues),
+    ]}
     if not quality.passed:
-        raise ApiError(422, 'IMAGE_QUALITY_REJECTED', 'The image did not pass the quality checks; no prediction was made.',
-                       fields=[{'loc': ['image'], 'message': issue, 'type': 'quality'} for issue in quality.issues])
+        raise out.refuse(422, 'IMAGE_QUALITY_REJECTED', 'The image did not pass the quality checks; no prediction was made.', 'QUALITY_FAILED',
+                         fields=[{'loc': ['image'], 'message': issue, 'type': 'quality'} for issue in quality.issues])
     try:
         fr = ml_features.extract(image)
-        raw = model.predict(image, fr)
     except ml_features.FeatureError as exc:
-        raise ApiError(422, 'IMAGE_QUALITY_REJECTED', str(exc)) from exc
+        out.quality['status'] = 'failed'
+        raise out.refuse(422, 'IMAGE_QUALITY_REJECTED', str(exc), 'QUALITY_FAILED') from exc
+
+    # Out-of-distribution inputs give no value (contract decision D3; audit H2).
+    ood = model.out_of_range_features(fr.vector)
+    range_check = P.check('feature_range_cf_v1', len(ood), 0, '<=', not ood)
+    out.compat = {**out.compat, 'checks': [region_check, range_check]}
+    if ood:
+        out.compat['status'] = 'incompatible'
+        raise out.refuse(422, 'INPUT_OUT_OF_DISTRIBUTION', 'The image is outside the range of images the model was trained on; '
+                         'no prediction was made.', 'INPUT_OUT_OF_DISTRIBUTION',
+                         fields=[{'loc': ['image'], 'message': name, 'type': 'out_of_distribution'} for name in ood[:10]],
+                         warnings=[P.warning('INPUT_OUT_OF_DISTRIBUTION', 'blocking', SOFTWARE_VERSION, {'features': ood[:10]})])
+    verified = BODY_SITE_VERIFIER(ACCEPTED_SITE[task], image)
+    verify_check = P.check('body_site_verified', 'no verifier installed' if verified is None else bool(verified), True, '==', verified is True)
+    out.compat = {**out.compat, 'checks': [region_check, range_check, verify_check]}
+    if verified is not True:
+        out.compat['status'] = 'incompatible'
+        out.verification = {'method': 'protocol_declared' if verified is None else 'detector:server-verifier@0',
+                            'status': 'unverified' if verified is None else 'failed'}
+        raise out.refuse(422, 'MODALITY_UNVERIFIED', 'The server cannot confirm that this image shows the body area the model '
+                         'needs; no prediction was made.', 'MODALITY_UNVERIFIED')
+    out.verification = {'method': 'detector:server-verifier@0', 'status': 'verified'}
+    out.compat['status'] = 'compatible'
+    try:
+        raw = model.predict(image, fr)
     except ModelError as exc:
-        raise ApiError(exc.status, exc.code, exc.message) from exc
+        raise out.refuse(exc.status, exc.code, exc.message, P.LEGACY_TO_REASON.get(exc.code, 'INFERENCE_RUNTIME_ERROR'),
+                         error=exc.status >= 500) from exc
     except Exception as exc:  # never fall back to a value
         logger.error('image inference failed task=%s type=%s', task, type(exc).__name__)
-        raise ApiError(500, 'INFERENCE_FAILED', 'The model could not process this image; no value was produced.', retryable=True) from exc
+        raise out.refuse(500, 'INFERENCE_FAILED', 'The model could not process this image; no value was produced.',
+                         'INFERENCE_RUNTIME_ERROR', error=True, retryable=True) from exc
     if not math.isfinite(raw):
-        raise ApiError(500, 'INFERENCE_FAILED', 'The model returned a non-finite value; no value was produced.', retryable=True)
-    warnings = ['RESEARCH_ONLY_NOT_VALIDATED']
-    ood = model.out_of_range_features(fr.vector)
-    if ood:
-        warnings.append('INPUT_OUTSIDE_TRAINING_DISTRIBUTION')
+        raise out.refuse(500, 'INFERENCE_FAILED', 'The model returned a non-finite value; no value was produced.', 'OUTPUT_NON_FINITE',
+                         error=True, retryable=True)
+    legacy_warnings = ['RESEARCH_ONLY_NOT_VALIDATED']
+    env_warnings = [P.warning('RESEARCH_ONLY_NOT_VALIDATED', 'caution', SOFTWARE_VERSION)]
+    if orientation_warning:
+        legacy_warnings.append('ORIENTATION_UNKNOWN')
+        env_warnings.append(P.warning('ORIENTATION_UNKNOWN', 'caution', SOFTWARE_VERSION))
     meta = model.meta
     result: dict[str, Any] = {
         'task': task, 'status': 'OK', 'provenance': 'EXPERIMENTAL_RESEARCH_ONLY', 'synthetic': False,
         'model_id': model.model_id, 'model_version': model.version, 'feature_version': ml_features.FEATURE_VERSION,
-        'warnings': warnings, 'out_of_distribution_features': ood[:10],
+        'warnings': legacy_warnings, 'out_of_distribution_features': [],
         'quality': quality.as_dict(),
         'input': {'width': int(image.shape[1]), 'height': int(image.shape[0]), 'channels': int(image.shape[2]),
-                  'valid_pixels': fr.valid_pixels, 'image_retained': False},
+                  'valid_pixels': fr.valid_pixels, 'image_retained': False, 'orientation': decoded.orientation.as_dict()},
         'intended_input': meta.get('intended_input') or meta.get('task'),
         'evaluation_summary': meta.get('evaluation'),
         'generated_at': datetime.now(timezone.utc).isoformat(),
@@ -435,17 +731,23 @@ def _run_image_model(task: str, data: bytes, content_type: str | None) -> dict[s
     if task == 'hemoglobin':
         lo, hi = HB_PLAUSIBLE
         if not lo <= raw <= hi:
-            raise ApiError(422, 'OUTPUT_OUT_OF_RANGE', 'The model output was outside the physiological range and was discarded.')
-        result.update({'estimate': round(raw, 1), 'unit': 'g/dL', 'confidence': None,
+            raise out.refuse(422, 'OUTPUT_OUT_OF_RANGE', 'The model output was outside the physiological range and was discarded.',
+                             'OUTPUT_IMPLAUSIBLE')
+        value = round(raw, 1)
+        result.update({'estimate': value, 'unit': 'g/dL', 'confidence': None,
                        'interpretation': 'No anemia category is given: no threshold is validated for the intended population.'})
+        estimate = {'value': value, 'unit': 'g/dL', 'display_precision': 1, 'uncertainty': {'kind': 'none'}}
     else:
         if not 0.0 <= raw <= 1.0:
-            raise ApiError(500, 'INFERENCE_FAILED', 'The model returned an invalid score; no value was produced.', retryable=True)
+            raise out.refuse(500, 'INFERENCE_FAILED', 'The model returned an invalid score; no value was produced.', 'OUTPUT_IMPLAUSIBLE',
+                             error=True, retryable=True)
         thr = float(meta['operating_threshold'])
         result.update({'score': round(raw, 4), 'unit': None, 'research_threshold': round(thr, 4),
                        'dataset_class_at_research_threshold': 'jaundice_like' if raw >= thr else 'normal_like',
                        'interpretation': ('Score for the NJN dataset class "jaundice". It is NOT a bilirubin value and the '
                                           'threshold is a research operating point, not a clinical cut-off.')})
+        estimate = {'value': round(raw, 4), 'unit': 'score', 'display_precision': 2, 'uncertainty': {'kind': 'none'}}
+    result['prediction'] = out.envelope('estimated', None, estimate=estimate, model=_model_ref(model), source='backend', warnings=env_warnings)
     result['timing_ms'] = {'decode': round((t_decode - t0) * 1000, 2), 'total': round((time.perf_counter() - t0) * 1000, 2)}
     return result
 
@@ -459,19 +761,25 @@ def ml_models() -> dict[str, Any]:
 
 @app.post('/api/ml/hemoglobin', tags=['research-models'], responses=ERROR_RESPONSES, openapi_extra={'requestBody': IMAGE_REQUEST_BODY})
 async def ml_hemoglobin(request: Request) -> dict[str, Any]:
-    """Research-only Hb (g/dL) from a segmented palpebral-conjunctiva image. Disabled unless the operator flag is set."""
-    _served_model('hemoglobin')  # fail fast (503) before reading the body
-    data = await _read_bounded(request)
-    return await run_in_threadpool(_run_image_model, 'hemoglobin', data, request.headers.get('content-type'))
+    """Research-only Hb (g/dL) from a segmented palpebral-conjunctiva image. Requires a research-operator token
+    and the operator flag; authentication and rate limits are checked before the body is read."""
+    return await _protected_image_route(request, 'hemoglobin')
 
 
 @app.post('/api/ml/neonatal-jaundice-class', tags=['research-models'], responses=ERROR_RESPONSES,
           openapi_extra={'requestBody': IMAGE_REQUEST_BODY})
 async def ml_neonatal_jaundice_class(request: Request) -> dict[str, Any]:
-    """Research-only NJN dataset-class score (jaundice vs normal). Not bilirubin. Disabled unless the operator flag is set."""
-    _served_model('neonatal_jaundice_class')
-    data = await _read_bounded(request)
-    return await run_in_threadpool(_run_image_model, 'neonatal_jaundice_class', data, request.headers.get('content-type'))
+    """Research-only NJN dataset-class score (jaundice vs normal). Not bilirubin. Requires a research-operator token
+    and the operator flag."""
+    return await _protected_image_route(request, 'neonatal_jaundice_class')
+
+
+async def _protected_image_route(request: Request, task: str) -> dict[str, Any]:
+    principal = authorize_research(request)
+    async with _rate_limited(principal):
+        _served_model(task)  # 503 MODEL_DISABLED before reading the body
+        data = await _read_bounded(request)
+        return await run_in_threadpool(_run_image_model, task, data, request.headers.get('content-type'))
 
 
 def _parse_iso(value: str | None, name: str) -> str | None:

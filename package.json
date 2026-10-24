@@ -6,8 +6,8 @@
   "scripts": {
     "test": "npm run test:web && npm run test:ui && npm run check:web",
     "test:web": "node --test tests/web.test.mjs",
-    "test:ui": "node --test tests/browser-smoke.test.mjs tests/offline-sync.test.mjs",
-    "check:web": "node --check web-dashboard/js/app.js && node --check web-dashboard/js/store.js && node --check web-dashboard/js/vision.js && node --check web-dashboard/js/inference.js && node --check web-dashboard/js/language.js && node --check web-dashboard/js/fhir.js && node --check web-dashboard/sw.js"
+    "test:ui": "node --test tests/browser-smoke.test.mjs tests/offline-sync.test.mjs tests/build2026-ui.test.mjs",
+    "check:web": "node --check web-dashboard/js/app.js && node --check web-dashboard/js/store.js && node --check web-dashboard/js/vision.js && node --check web-dashboard/js/inference.js && node --check web-dashboard/js/language.js && node --check web-dashboard/js/fhir.js && node --check web-dashboard/js/terms.js && node --check web-dashboard/js/qr.js && node --check web-dashboard/js/distribution.js && node --check web-dashboard/sw.js"
   },
   "devDependencies": {
     "jsdom": "26.1.0"

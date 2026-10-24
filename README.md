@@ -42,7 +42,7 @@
   - No bilirubin labels exist, so no jaundice model can be trained.
 - Browser camera frames and imported images stay in the browser; the PWA never uploads them. The research image endpoints are disabled unless an operator sets the flag, and even then they process images in memory only.
 - There is no face or eye landmark model; ROI alignment is a manual guide. Flash/ambient correction is an experimental visualization only.
-- **No authentication** apart from the admin usage report. The SQLite store and browser storage are not encrypted. There is no EHR or ABDM integration. Use synthetic profiles only.
+- **Authentication only on research routes** (Phase 4, contract 1.2.0): `/api/ml/*` and MODEL-mode screenings need a server-issued `research_operator` token and are rate-limited ([docs/configuration.md](docs/configuration.md)). Everything else, apart from the admin usage report, is unauthenticated and accepts synthetic demo records only. Google sign-in and per-user authorization are Phase 8. The SQLite store and browser storage are not encrypted. There is no EHR or ABDM integration. Use synthetic profiles only.
 - **Android:** canonical source is the separate [`AbhayNayan_apk`](https://github.com/shubhamcore/AbhayNayan_apk) repository; the `android/` folder here is a stale snapshot that does not compile as-is. See [docs/ANDROID_INTEGRATION.md](docs/ANDROID_INTEGRATION.md).
 - **Not verified:** a live Gemini call, a Docker build, and device or browser-farm testing. No latency, memory or device-compatibility figures have been measured.
 

@@ -14,6 +14,8 @@
 
 All three are off by default. `ABHAYNAYAN_ENABLE_EXPERIMENTAL_IMAGE_MODELS=1` enables them. Without it, the POST routes return **503 `MODEL_DISABLED` before reading the body**.
 
+**Since contract 1.2.0 (Phase 4)** the POST routes also require `Authorization: Bearer <token>` with the `research_operator` role. Authentication, role and per-operator rate limits are checked first (`401`/`403`/`429`), then the flag. Tokens are minted server-side with `scripts/issue_access_token.py` ([configuration.md §4](configuration.md)). Uploaded images are normalised to EXIF display orientation, reported in `input.orientation`.
+
 ### `POST /api/ml/hemoglobin`
 
 Request: raw PNG or JPEG bytes as the body, `Content-Type: image/png` or `image/jpeg`. No multipart and no JSON. Intended input: a segmented palpebral-conjunctiva crop (transparent background) like the training data.

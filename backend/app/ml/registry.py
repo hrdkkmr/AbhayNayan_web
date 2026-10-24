@@ -140,11 +140,56 @@ class Registry:
     def __init__(self, models_dir: Path = MODELS_DIR) -> None:
         self.models_dir = models_dir
         self._lock = threading.Lock()
-        self._cache: dict[str, LoadedModel | ModelError] = {}
+        # model_id -> (fingerprint of the registry + artifact files, loaded model or the load error)
+        self._cache: dict[str, tuple[tuple, LoadedModel | ModelError]] = {}
 
     def reset(self) -> None:
         with self._lock:
             self._cache.clear()
+
+    def _fingerprint(self, model_id: str) -> tuple:
+        """Cheap stat-based identity of the files a model depends on. A changed file forces re-verification."""
+        names = ['MODEL_REGISTRY.json']
+        try:
+            pin = json.loads((self.models_dir / 'MODEL_REGISTRY.json').read_text(encoding='utf-8'))['models'].get(model_id) or {}
+            names += list(pin.get('sha256', {}))
+        except (OSError, json.JSONDecodeError, KeyError, AttributeError):
+            pass
+        out = []
+        for name in names:
+            try:
+                st = (self.models_dir / name).stat()
+                out.append((name, st.st_size, st.st_mtime_ns))
+            except OSError:
+                out.append((name, None, None))
+        return tuple(out)
+
+    def registered_ids(self) -> list[str]:
+        try:
+            return sorted(self._pins())
+        except ModelError:
+            return []
+
+    def diagnose(self, model_id: str) -> dict[str, Any]:
+        """Readiness view of one model: presence, checksum, compatibility. Codes only, no paths or messages."""
+        try:
+            pin = self._pins().get(model_id)
+        except ModelError:
+            pin = None
+        if pin is None:
+            return {'registered': False, 'artifacts': 'not_registered', 'checksum': 'not_checked', 'loadable': False,
+                    'reason_code': 'MODEL_UNAVAILABLE'}
+        entry: dict[str, Any] = {'registered': True, 'task': pin.get('task'), 'role': pin.get('role'),
+                                 'version': pin.get('version'), 'validation_status': pin.get('validation_status')}
+        try:
+            m = self.get(model_id)
+            entry.update({'artifacts': 'present', 'checksum': 'verified', 'loadable': True, 'reason_code': None,
+                          'load_ms': round(m.load_ms, 1)})
+        except ModelError as exc:
+            entry.update({'loadable': False, 'reason_code': exc.code,
+                          'artifacts': 'missing' if exc.code == 'MODEL_UNAVAILABLE' else 'present',
+                          'checksum': {'MODEL_UNAVAILABLE': 'not_checked', 'MODEL_INTEGRITY_FAILED': 'mismatch'}.get(exc.code, 'verified')})
+        return entry
 
     def _pins(self) -> dict[str, Any]:
         try:
@@ -189,13 +234,16 @@ class Registry:
 
     def get(self, model_id: str) -> LoadedModel:
         with self._lock:
-            cached = self._cache.get(model_id)
-            if cached is None:
+            fingerprint = self._fingerprint(model_id)
+            hit = self._cache.get(model_id)
+            if hit is not None and hit[0] == fingerprint:
+                cached = hit[1]
+            else:
                 try:
                     cached = self._load(model_id)
                 except ModelError as exc:
                     cached = exc
-                self._cache[model_id] = cached
+                self._cache[model_id] = (fingerprint, cached)
         if isinstance(cached, ModelError):
             raise cached
         return cached

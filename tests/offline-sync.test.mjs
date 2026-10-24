@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { runDemoInference } from '../web-dashboard/js/inference.js';
+import { withTerms } from './helpers/terms.mjs';
 
 const html = await fs.readFile(new URL('../web-dashboard/index.html', import.meta.url), 'utf8');
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
@@ -27,10 +28,10 @@ async function startApp(saved, fetchImpl) {
     getImageData: (_x, _y, width, height) => ({ data: new Uint8ClampedArray(width * height * 4).map((_, i) => (i % 4 === 3 ? 255 : 150)), width, height }),
   });
   dom.window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
-  globalThis.fetch = fetchImpl;
+  globalThis.fetch = withTerms(fetchImpl);
   boot += 1;
   await import(`../web-dashboard/js/app.js?offline-sync=${boot}`);
-  await waitFor(() => document.querySelector('.hero-panel'), 'home');
+  await waitFor(() => document.querySelector('.welcome-panel'), 'home');
   return dom;
 }
 function snapshot(dom) {
@@ -41,8 +42,17 @@ function snapshot(dom) {
 const rows = (name) => JSON.parse(localStorage.getItem(`abn_${name}`) || '[]');
 const click = (selector) => document.querySelector(selector).click();
 
+// Accepts the terms when the app asks (first screening on a device); later starts on the same storage are not asked.
+async function acceptTermsIfAsked() {
+  for (let i = 0; i < 25 && !document.querySelector('.terms-dialog') && !document.querySelector('#patientSelect'); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  document.querySelector('.terms-dialog [data-action="accept-terms"]')?.click();
+}
+
 async function runMaternalDemo() {
   click('[data-action="start-maternal"]');
+  await acceptTermsIfAsked();
   await waitFor(() => document.querySelector('#patientSelect'), 'step 1');
   click('[data-action="wizard-next"]');
   await waitFor(() => document.querySelector('[data-action="synthetic-image"]'), 'capture step');
@@ -162,6 +172,7 @@ test('neonatal workflow requires age in hours and sends it as screening context'
   });
   try {
     click('[data-action="start-jaundice"]');
+    await acceptTermsIfAsked();
     await waitFor(() => document.querySelector('#ctxInfantAge'), 'age field');
     const age = document.querySelector('#ctxInfantAge');
     assert.equal(age.value, '36'); // prefilled from the synthetic newborn profile
@@ -211,7 +222,7 @@ test('every page renders without the error state, including model audit and admi
     return api.fetchImpl(path, options);
   });
   try {
-    for (const page of ['patients', 'history', 'sync', 'phc', 'architecture', 'model', 'settings', 'usage']) {
+    for (const page of ['patients', 'history', 'sync', 'phc', 'architecture', 'model', 'settings', 'assistant', 'terms', 'getapp', 'usage']) {
       click(`.nav-item[data-page="${page}"]`);
       await waitFor(() => document.querySelector('#currentSection').textContent !== 'Home' || page === 'home', `${page} header`);
       await new Promise((resolve) => setTimeout(resolve, 30));

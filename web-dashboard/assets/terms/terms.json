@@ -1,0 +1,97 @@
+{
+  "id": "abhaynayan.terms",
+  "version": "1.0",
+  "acceptance_version": "1.0",
+  "last_updated": "2026-10-24",
+  "language": "en",
+  "title": "AbhayNayan Terms & Conditions",
+  "summary": [
+    "AbhayNayan is a research and design prototype, not a medical device.",
+    "It does not diagnose and does not currently measure hemoglobin or bilirubin.",
+    "Photos are checked on the device and are not uploaded.",
+    "Use synthetic or demo information only. Do not enter real patient details."
+  ],
+  "review_note": "These terms were written by the project team for a research prototype. They have not been reviewed by a lawyer or a clinician, and they are in English only until a reviewed translation exists.",
+  "sections": [
+    {
+      "id": "purpose",
+      "title": "1. What AbhayNayan is for",
+      "paragraphs": [
+        "AbhayNayan is a prototype of a guided screening workflow intended to make community health information easier to use. It helps a user choose a workflow, follow short capture instructions, take or import a photo, check the photo on the device, keep a local record and prepare a referral summary."
+      ]
+    },
+    {
+      "id": "status",
+      "title": "2. Prototype status",
+      "paragraphs": [
+        "AbhayNayan is a research and design prototype. It is not a medical device, it has not been clinically validated, and it is not approved for use in patient care."
+      ],
+      "items": [
+        "Working: the guided workflows, on-device photo quality checks, refusal of unsupported inputs, local records, referral summaries and the help assistant.",
+        "Not validated: any estimate of hemoglobin or bilirubin from a photo. Research models are switched off in this app.",
+        "Demo profiles can show fixed synthetic example values. These are labelled as synthetic and are never calculated from a photo or a person."
+      ]
+    },
+    {
+      "id": "estimates",
+      "title": "3. Estimates may be unavailable",
+      "paragraphs": [
+        "In the current app, a clinical estimate of hemoglobin or bilirubin is not available. When no supported estimate can be produced, the result screen says so, for example 'unable to estimate'. This does not mean that the person is healthy. A failed analysis is shown as an error and no value is shown."
+      ]
+    },
+    {
+      "id": "image-checks",
+      "title": "4. Image quality is not the same as a supported input",
+      "paragraphs": [
+        "The app checks photo quality, such as brightness and sharpness. A photo can be of good quality and still be refused, because it does not show the region a workflow needs or because it comes from a source the workflow does not support. Passing a quality check does not mean a photo can be analysed, and a refusal says nothing about the person's health."
+      ]
+    },
+    {
+      "id": "not-medical-advice",
+      "title": "5. Not a substitute for medical assessment",
+      "paragraphs": [
+        "Nothing in AbhayNayan, including its help assistant, is a diagnosis, a test result or medical advice. Do not use it to decide on, delay or change care or treatment. Anyone with a health concern should be assessed by a qualified health worker or doctor. In an emergency, call 112 or go to the nearest health facility."
+      ]
+    },
+    {
+      "id": "privacy",
+      "title": "6. Privacy, permissions and storage",
+      "items": [
+        "Camera and gallery: the app asks for camera permission only when you choose to take a photo, and opens the gallery only when you choose to import one. Photos are checked in memory on the device. They are not uploaded and are not saved with a record.",
+        "Android: records are stored in an encrypted database on the phone. Its key is protected by the Android Keystore. This protects data at rest and does not protect a phone that is unlocked, rooted or otherwise compromised.",
+        "Web app: records stay in this browser's storage, which the app does not encrypt.",
+        "Sent to the server, only when one is configured: synthetic demo records as a short summary with a pseudonymous ID and no photo; the screening type, the demo value and its labels, the language, and age or pregnancy fields for optional counselling wording; and questions typed into the help assistant.",
+        "Help assistant: your question is checked on the server first. Questions containing personal details, or asking for a diagnosis or estimate, are refused and are not sent on. Other questions may be passed, together with approved help text, to the Agent37 platform to word the answer, when the server operator has enabled it. AbhayNayan does not store or log questions. Agent37 may keep them under its own terms (https://www.agent37.com/terms).",
+        "You can delete all local data from Settings. Records already sent to the demo server are not deleted by this."
+      ]
+    },
+    {
+      "id": "sync",
+      "title": "7. Synchronisation limits",
+      "paragraphs": [
+        "Records are saved on the device first. Sync of full outcome records is switched off, because the server does not yet have a compatible, authenticated endpoint. Only synthetic demo summaries can be synced. The app does not show a record as synced unless the server has confirmed it."
+      ]
+    },
+    {
+      "id": "consent",
+      "title": "8. Consent and data handling",
+      "paragraphs": [
+        "Accepting these terms means you understand how this prototype works and its limits. It is not consent to take part in research, to upload images or to share personal data. Separate, explicit consent would be needed for any of those, and the app does not ask for it."
+      ],
+      "items": [
+        "Use synthetic or demo information only. Do not enter real names, phone numbers, ID numbers, addresses or medical histories.",
+        "If you photograph a person for a demonstration, get their permission first and follow your organisation's rules.",
+        "Keep the device locked and do not share exported reports that may contain personal information."
+      ]
+    },
+    {
+      "id": "help",
+      "title": "9. Help, problems and versions",
+      "items": [
+        "Help: open Help & safety in the Android app, or ask the help assistant in the web app.",
+        "Report a problem: https://github.com/hrdkkmr/AbhayNayan_web/issues. Issues are public, so do not include personal or health information.",
+        "Terms version: shown at the top of this page with its last-updated date. If a change is significant, the app asks you to review and accept the new version before you start another screening."
+      ]
+    }
+  ]
+}

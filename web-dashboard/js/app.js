@@ -3,6 +3,9 @@ import { assessImageQuality, correctAmbientLight, createSyntheticImage, extractO
 import { PROVENANCE, formatEstimate, formatScore, getDemoCases, provenanceOf, riskTone, runDemoInference } from './inference.js';
 import { LANGUAGES, localCounsel, navLabels } from './language.js';
 import { buildFhirBundle, downloadJson } from './fhir.js';
+import { APP_DISTRIBUTION, validateDestination } from './distribution.js';
+import { qrSvg } from './qr.js';
+import { ACCEPTANCE_SETTING, acceptanceNeeded, acceptanceRecord, loadTerms } from './terms.js';
 
 const state = {
   page: 'home', language: 'en', workerName: 'Demo ASHA Worker', phc: 'Demo PHC · Bihta',
@@ -13,6 +16,8 @@ const state = {
   counselling: null, lastCounselLanguage: '', localOnly: false, referral: null,
   apiHealth: null, filter: 'all', search: '', context: { infantAgeHours: null, gestationalWeek: null },
   usageReport: null, usageError: '', syncing: false,
+  terms: null, termsError: '', termsAccepted: null, pendingStart: null,
+  assistant: { question: '', result: null, error: '', loading: false, status: null },
 };
 // Shared web/Android sync status semantics (docs/API_CONTRACT.md): queued → synced | failed (retryable) | rejected | conflict.
 const SYNC_LABELS = {
@@ -24,7 +29,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-const pageNames = { home: 'Home', new: 'New screening', patients: 'Patients', history: 'History', sync: 'Sync queue', phc: 'PHC dashboard', architecture: 'Pipeline & architecture', model: 'Model & data audit', settings: 'Settings', result: 'Screening result', usage: 'AI usage (admin)' };
+const pageNames = { home: 'Home', new: 'New screening', patients: 'Patients', history: 'History', sync: 'Sync queue', phc: 'PHC dashboard', architecture: 'Pipeline & architecture', model: 'Model & data audit', settings: 'Settings', result: 'Screening result', usage: 'AI usage (admin)', terms: 'Terms & Conditions', getapp: 'Get the app', assistant: 'Help assistant' };
 
 async function apiRequest(path, options = {}) {
   if (state.simulateOffline || !navigator.onLine) throw Object.assign(new Error('Offline mode — saved locally on this device.'), { code: 'OFFLINE', retryable: true });
@@ -88,6 +93,7 @@ function setHeader() {
   $('#workerMiniName').textContent = state.workerName;
   $('#workerMiniPhc').textContent = state.phc;
   updateNetworkChip();
+  updateFooter();
 }
 
 function updateNetworkChip() {
@@ -119,8 +125,10 @@ function riskClass(category) {
 function localResultLabel(record) {
   return formatEstimate(record.result);
 }
-function safetyBlock(text = 'Synthetic prototype estimate only. Not a diagnosis or validated clinical measurement. Confirm with appropriate clinical testing and local protocol.') {
-  return `<div class="safety-note"><strong>Safety boundary · synthetic demo</strong><br>${escapeHtml(text)}</div>`;
+// Point-of-use safety text. `prominent` is kept for result and run decisions; elsewhere a one-line note links to the terms.
+function safetyBlock(text = 'Synthetic prototype estimate only. Not a diagnosis or validated clinical measurement. Confirm with appropriate clinical testing and local protocol.', { prominent = false } = {}) {
+  if (prominent) return `<div class="safety-note" role="note"><strong>Safety boundary · synthetic demo</strong><br>${escapeHtml(text)}</div>`;
+  return `<p class="context-note" role="note"><span class="context-icon" aria-hidden="true">ⓘ</span><span>${escapeHtml(text)} <button class="link-button" data-page="terms">Terms &amp; limits</button></span></p>`;
 }
 function pageHead(eyebrow, title, description, actions = '') {
   return `<div class="page-head"><div><div class="page-eyebrow">${escapeHtml(eyebrow)}</div><h1>${title}</h1><p>${description}</p></div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</div>`;
@@ -157,22 +165,28 @@ async function renderHome() {
   const failed = screenings.filter(isSyncProblem).length + queue.filter((item) => item.last_sync_error && !isSyncProblem(item)).length;
   const demoCount = screenings.filter((record) => provenanceOf(record.result) === 'DEMO_SYNTHETIC').length;
   const offline = state.simulateOffline || !navigator.onLine;
-  return `${`<section class="hero-panel"><div class="hero-content"><div class="hero-kicker"><span class="pulse-dot"></span> LOCAL-FIRST · DEMO ONLY</div><h1>Clearer next steps.<br>Closer to the community.</h1><p>Explore maternal anemia and newborn jaundice workflows with a transparent, synthetic screening prototype. No camera frame is uploaded.</p><div class="hero-buttons"><button class="btn btn-light" data-action="start-screening">＋ Start a screening</button><button class="btn btn-outline-light" data-page="architecture">Explore the pipeline <span>→</span></button></div></div><div class="hero-illustration" aria-hidden="true"><div class="hero-orbit"><div class="hero-shield">अ</div></div></div></section>`}
-    <div class="online-banner ${state.simulateOffline || !navigator.onLine ? 'offline' : ''}" style="margin-top:14px"><div class="banner-icon">${state.simulateOffline || !navigator.onLine ? '⇄' : '▣'}</div><div class="banner-copy"><strong>${state.simulateOffline || !navigator.onLine ? 'Offline-first demo is ready' : `API ${apiState === 'connected' ? 'connected' : 'not reachable'} · local workflow remains available`}</strong><span>Patient details and camera pixels stay in this browser. Server sync sends a pseudonymous ID and synthetic demo record only.</span></div></div>
+  return `<section class="welcome-panel" aria-labelledby="welcomeTitle"><h1 id="welcomeTitle">Welcome to AbhayNayan</h1><p>A guided screening workflow for community health work: choose a workflow, follow short instructions, take or import a photo, and get a clearly labelled outcome or a clear refusal. Photos are checked on this device and are not uploaded.</p>
+      <div class="welcome-actions"><button class="btn btn-primary" data-action="start-screening">＋ Start a screening</button><button class="btn btn-secondary" data-page="history">View records</button><button class="btn btn-secondary" data-page="assistant">Ask a question</button></div>
+      <p class="field-help" style="margin:0">Research prototype: not a medical device and not a diagnosis. <button class="link-button" data-page="terms">Read the Terms &amp; Conditions</button>.</p></section>
+    <h2 class="screen-reader">How it works</h2>
+    <ol class="steps-strip" style="margin-top:14px"><li><span class="step-no" aria-hidden="true">1</span><span><strong>Choose a workflow</strong>Maternal anemia or newborn jaundice.</span></li><li><span class="step-no" aria-hidden="true">2</span><span><strong>Read the instructions</strong>Short guidance for the photo.</span></li><li><span class="step-no" aria-hidden="true">3</span><span><strong>Capture or import</strong>Quality is checked on this device.</span></li><li><span class="step-no" aria-hidden="true">4</span><span><strong>See the outcome and save</strong>A labelled result or a reason why not.</span></li></ol>
+    <div class="online-banner ${state.simulateOffline || !navigator.onLine ? 'offline' : ''}" style="margin-top:14px" role="status"><div class="banner-icon" aria-hidden="true">${state.simulateOffline || !navigator.onLine ? '⇄' : '▣'}</div><div class="banner-copy"><strong>${state.simulateOffline || !navigator.onLine ? 'You are offline · screenings and records still work' : `Server ${apiState === 'connected' ? 'connected' : 'not reachable'} · the local workflow remains available`}</strong><span>Patient details and camera pixels stay in this browser. Sync sends only a pseudonymous ID and the synthetic demo record.</span></div></div>
     <div class="card-grid grid-4" style="margin-top:15px">
       <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Completed on this device</span><span class="stat-icon">◷</span></div><div class="stat-number">${screenings.length}</div><div class="stat-caption">${demoCount} of ${screenings.length} are synthetic demo records · ${todayCount} today</div></div>
       <div class="panel stat-card stat-warning"><div class="stat-top"><span class="stat-label">Pending sync</span><span class="stat-icon">⇄</span></div><div class="stat-number">${queue.length}</div><div class="stat-caption">${offline ? 'Offline · kept safely on this device' : 'Saved locally until synchronized'}</div></div>
       <div class="panel stat-card ${failed ? 'stat-danger' : ''}"><div class="stat-top"><span class="stat-label">Sync problems</span><span class="stat-icon">!</span></div><div class="stat-number">${failed}</div><div class="stat-caption">${failed ? '<button class="view-link" data-page="sync">Review in sync queue →</button>' : 'No failed, rejected, or conflicting records'}</div></div>
       <div class="panel stat-card"><div class="stat-top"><span class="stat-label">Local patient profiles</span><span class="stat-icon">♙</span></div><div class="stat-number">${patients.length}</div><div class="stat-caption">Names remain on this device · ${referrals.length} referral brief(s)</div></div>
     </div>
-    <div class="section-title-row"><div><h2>Choose a screening workflow</h2><p>Every output is a named synthetic fixture, not a pixel-derived measurement.</p></div></div>
+    <div class="section-title-row"><div><h2>Choose a screening workflow</h2><p>Demo values are named synthetic examples, never measured from the photo.</p></div></div>
     <div class="card-grid grid-2">
       <button class="action-card" data-action="start-maternal"><span class="action-icon">♡</span><span class="action-copy"><strong>Maternal anemia workflow</strong><span>Patient profile → local capture quality → optical feature visualization → selected synthetic Hb fixture → counselling and referral.</span></span><span class="action-arrow">→</span></button>
       <button class="action-card" data-action="start-jaundice"><span class="action-icon amber">☼</span><span class="action-copy"><strong>Neonatal jaundice workflow</strong><span>Newborn profile → local capture quality → manual sclera guide → selected synthetic bilirubin fixture → clinician-confirmation message.</span></span><span class="action-arrow">→</span></button>
     </div>
-    <div class="section-title-row"><div><h2>Recent local records</h2><p>Results are prominently tagged synthetic and require clinical confirmation.</p></div><button class="view-link" data-page="history">View history →</button></div>
+    <div class="section-title-row"><div><h2>Recent local records</h2><p>Saved on this device. Each record shows where its value came from.</p></div><button class="view-link" data-page="history">View history →</button></div>
     <div class="panel">${recordRows(newest, 'There are no saved screenings on this device yet.')}</div>
-    <div class="card-note" style="margin-top:15px"><strong>Prototype, not care advice.</strong> This build has no clinically approved TFLite model. Demo estimates are selected from fixed examples and are not derived from the live camera, imported image, or optical features. Do not use them to diagnose, triage, or change treatment.</div>`;
+    <div class="section-title-row"><div><h2>Information and help</h2></div></div>
+    <div class="quick-links"><button class="quick-link" data-page="assistant"><strong>Help assistant</strong><span>General questions about using the app</span></button><button class="quick-link" data-page="terms"><strong>Terms &amp; Conditions</strong><span>Prototype limits, privacy and consent</span></button><button class="quick-link" data-page="getapp"><strong>Get the app</strong><span>QR code and link for a phone</span></button><button class="quick-link" data-page="architecture"><strong>How it is built</strong><span>Pipeline and data boundaries</span></button></div>
+    ${safetyBlock('No clinically validated model is active. Demo values are fixed examples and are not derived from the camera, an imported image or optical features.')}`;
 }
 
 function selectedPatient() { return state.patients.find((person) => person.id === state.selectedPatientId) || null; }
@@ -277,7 +291,7 @@ function renderWizard() {
       <div class="panel panel-pad"><div class="row-between"><div><h2 style="margin:0;color:var(--navy);font-size:14px">Select a named synthetic case</h2><p style="margin:4px 0 12px;color:var(--body);font-size:13px">The estimate below is selected from a fixed fixture, never computed from the image.</p></div><span class="badge badge-amber">DEMO ONLY</span></div><div class="col">${caseOptions}</div>
         ${patientCanDemo ? `<div class="callout" style="margin-top:11px">Linked to <strong>${escapeHtml(patient.name)}</strong> (${escapeHtml(patient.id)}), a synthetic demo profile and abstract synthetic image only.</div>` : `<div class="safety-note danger" style="margin-top:11px"><strong>Estimate disabled for this capture/profile.</strong><br>${patient?.isDemo ? 'A real camera/import image may be used for local quality and feature visualization only. Go back and choose the abstract synthetic image to run a disconnected fixture demo.' : 'Current prototype has no clinical model. A synthetic result cannot be attached to a real/local patient profile.'}</div>`}
       </div></div>
-      ${safetyBlock('This selected fixture is synthetic, not derived from camera pixels, optical features, or a trained clinical model. Do not use it for diagnosis, triage, or treatment decisions.')}
+      ${safetyBlock('This selected fixture is synthetic, not derived from camera pixels, optical features, or a trained clinical model. Do not use it for diagnosis, triage, or treatment decisions.', { prominent: true })}
       <div class="row-between" style="margin-top:15px"><button class="btn btn-secondary" data-action="wizard-back">← Back to quality gate</button><button class="btn btn-primary" data-action="run-screening" ${patientCanDemo && state.selectedCaseId ? '' : 'disabled'}>Run selected synthetic case →</button></div>`;
   }
   return `${pageHead('Screening workspace', step === 1 ? 'Start a guided screening' : step === 2 ? 'Capture & local quality check' : 'Review features & choose a demo case', 'A transparent prototype workflow for frontline teams — not a medical device or diagnostic tool.')}<div class="panel panel-pad">${stepIndicator(step)}${body}</div>`;
@@ -305,7 +319,7 @@ function renderResult() {
     <div class="result-hero"><div><div class="result-overline">${isDemo ? 'SYNTHETIC FIXTURE' : 'EXPERIMENTAL · RESEARCH ONLY'} · ${escapeHtml(typeLabel(type))}</div><div class="result-value">${escapeHtml(Number(result.estimate).toFixed(1))} <small>${escapeHtml(result.unit)}</small></div><div class="result-title">${escapeHtml(result.case_label || info.label)}</div><div class="result-summary">Patient ID: ${escapeHtml(record.patient?.patient_id || '—')} · ${escapeHtml(dateLabel(record.created_at))}${ageHours !== null && ageHours !== undefined ? ` · newborn age ${escapeHtml(ageHours)} h` : ''} · ${isDemo ? 'no pixel-derived estimate' : 'not a measurement'}</div></div><div class="risk-pill ${severity === 'red' ? 'badge-red' : severity === 'amber' ? 'badge-amber' : ''}">${escapeHtml(result.risk_category)}</div></div>
     <div class="result-metrics"><div class="metric-card"><span>Model confidence</span><strong>${escapeHtml(formatScore(result.confidence))}</strong><em>${result.confidence === null || result.confidence === undefined ? 'No calibrated uncertainty is produced, so none is shown' : 'Model-reported; not a clinical probability'}</em></div><div class="metric-card"><span>Captured image quality (engineering proxy)</span><strong>${audit?.quality ? escapeHtml(formatScore(audit.quality.qualityScore)) : 'Not measured'}</strong><em>Measures brightness and sharpness only — separate from any estimate</em></div><div class="metric-card"><span>Inference mode</span><strong class="metric-small">${escapeHtml(result.model_mode)}</strong><em>${isDemo ? 'Fixed deterministic fixture · no model used' : escapeHtml(result.model_version || 'unversioned model')}</em></div></div>
     ${result.limitations?.length ? `<ul class="limitations">${result.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
-    <div style="margin-top:13px">${safetyBlock(safety)}</div>
+    <div style="margin-top:13px">${safetyBlock(safety, { prominent: true })}</div>
     <div class="card-grid grid-2" style="margin-top:14px"><section class="panel panel-pad"><div class="row-between"><div><h2 style="font-size:13px;color:var(--navy);margin:0">Counselling & next step</h2><p style="font-size:13px;color:var(--body);margin:4px 0 10px">${counselMode === 'GEMINI' ? 'Wording by optional server-side Gemini; next step and safety note from reviewed local copy' : `Reviewed deterministic copy${counsel.fallback_reason ? ` (AI wording unavailable: ${escapeHtml(counsel.fallback_reason.replaceAll('_', ' ').toLowerCase())})` : ''}`} · ${escapeHtml(counsel.language || state.language)}${counsel.generated_at ? ` · ${escapeHtml(dateLabel(counsel.generated_at))}` : ''}</p></div><span class="badge ${counselMode === 'GEMINI' ? 'badge-blue' : 'badge-gray'}">${escapeHtml(counselMode)}</span></div>
       <div class="language-tabs">${LANGUAGES.map((lang) => `<button class="language-tab ${state.language === lang.id ? 'active' : ''}" data-lang-tab="${lang.id}">${escapeHtml(lang.native)}</button>`).join('')}</div>
       <div class="counsel-box" style="margin-top:10px">${escapeHtml(script)}</div>
@@ -483,7 +497,175 @@ async function renderSettings() {
     <div class="card-grid grid-2"><section class="panel panel-pad"><h2 style="font-size:13px;color:var(--navy);margin:0 0 12px">Worker profile · local only</h2><form id="settingsForm"><div class="form-grid"><div class="form-field"><label for="workerName">Display name</label><input id="workerName" class="input" name="workerName" maxlength="80" value="${escapeHtml(state.workerName)}" autocomplete="name"></div><div class="form-field"><label for="phcName">PHC / location label</label><input id="phcName" class="input" name="phc" maxlength="80" value="${escapeHtml(state.phc)}"></div><div class="form-field full"><label for="languageSelect">Interface / counselling language</label><select id="languageSelect" class="select" name="language">${LANGUAGES.map((item) => `<option value="${item.id}" ${state.language === item.id ? 'selected' : ''}>${escapeHtml(item.label)} · ${escapeHtml(item.native)}</option>`).join('')}</select></div></div><div class="row" style="margin-top:14px"><button class="btn btn-primary" type="submit">Save local settings</button></div></form>
       <hr class="divider"><label class="toggle"><input type="checkbox" id="simulateOfflineSettings" ${state.simulateOffline ? 'checked' : ''}><span class="toggle-track"></span><span>Simulate offline mode</span></label><p style="font-size:12px;color:var(--muted);margin:6px 0 0">Affects app network requests only; does not disable your device network.</p></section>
       <section class="panel panel-pad"><h2 style="font-size:13px;color:var(--navy);margin:0 0 10px">Privacy & storage</h2><div class="signal-list"><div class="signal-row"><span>Browser store</span><strong>${storage.indexedDb ? 'INDEXEDDB' : 'LOCALSTORAGE FALLBACK'}</strong></div><div class="signal-row"><span>Store name</span><strong>${escapeHtml(storage.name)}</strong></div><div class="signal-row"><span>Camera/photo upload</span><strong>DISABLED</strong></div><div class="signal-row"><span>Gemini key</span><strong>SERVER ENV ONLY</strong></div><div class="signal-row"><span>Raw Drive data included</span><strong>NO</strong></div></div><div class="callout" style="margin-top:12px">If enabled by the operator, the Gemini API key is read from the backend environment variable <code>GEMINI_API_KEY</code>. Never paste a key into this screen, a client bundle, or the chat.</div><div class="row" style="margin-top:15px"><button class="btn btn-danger-soft" data-action="clear-local-data">Clear all local app data</button></div></section></div>
-    <div class="panel panel-pad" style="margin-top:14px"><h2 style="font-size:13px;color:var(--navy);margin:0 0 7px">Safety and support</h2><p style="font-size:13px;color:var(--body);margin:0 0 8px">This is a hackathon prototype—not a medical device or approved EHR. Do not use synthetic estimates for care decisions. Confirm with appropriate testing and qualified clinicians.</p><div class="row" style="flex-wrap:wrap"><button class="btn btn-secondary btn-sm" data-page="architecture">Architecture & boundary</button><button class="btn btn-secondary btn-sm" data-page="model">Dataset audit & evidence</button><button class="btn btn-secondary btn-sm" data-page="sync">Sync queue</button></div></div>`;
+    <div class="card-grid grid-2" style="margin-top:14px">${termsSettingsCard()}${getAppSettingsCard()}</div>
+    <div class="panel panel-pad" style="margin-top:14px"><h2 class="panel-title">Help and support</h2><p class="panel-copy">Research and design prototype: not a medical device or an approved health record. Ask the help assistant for general questions, or report a problem on the public issue tracker (do not include personal or health information).</p><div class="row" style="flex-wrap:wrap"><button class="btn btn-secondary btn-sm" data-page="assistant">Help assistant</button><a class="btn btn-secondary btn-sm" href="https://github.com/hrdkkmr/AbhayNayan_web/issues" target="_blank" rel="noopener">Report a problem</a><button class="btn btn-secondary btn-sm" data-page="architecture">Architecture & boundary</button><button class="btn btn-secondary btn-sm" data-page="model">Dataset audit & evidence</button></div></div>`;
+}
+
+function termsStatusText() {
+  const terms = state.terms;
+  if (!terms) return state.termsError ? 'Terms could not be loaded.' : 'Loading terms…';
+  if (!state.termsAccepted) return 'Not yet accepted on this device. You will be asked before your first screening.';
+  if (acceptanceNeeded(terms, state.termsAccepted)) return `You accepted version ${state.termsAccepted.version}. The terms have changed and need to be reviewed again before the next screening.`;
+  return `Accepted on this device on ${dateLabel(state.termsAccepted.accepted_at)} (version ${state.termsAccepted.version}).`;
+}
+
+function termsSettingsCard() {
+  const terms = state.terms;
+  return `<section class="panel panel-pad" aria-labelledby="termsCardTitle"><h2 class="panel-title" id="termsCardTitle">Terms &amp; Conditions</h2>
+    <div class="signal-list"><div class="signal-row"><span>Version</span><strong>${escapeHtml(terms?.version || '—')}</strong></div><div class="signal-row"><span>Last updated</span><strong>${escapeHtml(terms?.last_updated ? dateLabel(terms.last_updated, false) : '—')}</strong></div></div>
+    <p class="panel-copy" style="margin-top:10px">${escapeHtml(termsStatusText())}</p>
+    <div class="row" style="flex-wrap:wrap"><button class="btn btn-primary btn-sm" data-page="terms">Read the Terms &amp; Conditions</button></div></section>`;
+}
+
+function getAppSettingsCard() {
+  const destination = validateDestination(APP_DISTRIBUTION);
+  if (!destination.ok) return `<section class="panel panel-pad"><h2 class="panel-title">Get the AbhayNayan app</h2><p class="panel-copy">The app link is not available yet.</p></section>`;
+  return `<section class="panel panel-pad" aria-labelledby="getAppCardTitle"><h2 class="panel-title" id="getAppCardTitle">Get the AbhayNayan app</h2>
+    <div class="row" style="align-items:flex-start"><div class="qr-frame qr-mini">${qrSvg(destination.url, { title: `QR code: ${destination.label}` })}</div><div><p class="panel-copy" style="margin-top:0">${escapeHtml(destination.scanText)}</p><button class="btn btn-secondary btn-sm" data-page="getapp">Show larger code and link</button></div></div></section>`;
+}
+
+function renderTerms() {
+  const terms = state.terms;
+  if (!terms) {
+    return `${pageHead('Information', 'Terms & Conditions', 'The terms explain what this prototype can and cannot do.')}<div class="panel panel-pad">${state.termsError
+      ? `<p class="panel-copy">${escapeHtml(state.termsError)} Connect to the internet once and try again.</p><button class="btn btn-secondary" data-action="reload-terms">Try again</button>`
+      : '<p class="panel-copy">Loading…</p>'}</div>`;
+  }
+  const needs = acceptanceNeeded(terms, state.termsAccepted);
+  const sections = terms.sections.map((section) => `<section class="terms-section" id="terms-${escapeHtml(section.id)}" aria-labelledby="terms-h-${escapeHtml(section.id)}"><h2 id="terms-h-${escapeHtml(section.id)}">${escapeHtml(section.title)}</h2>
+      ${(section.paragraphs || []).map((p) => `<p>${linkify(p)}</p>`).join('')}${section.items?.length ? `<ul>${section.items.map((item) => `<li>${linkify(item)}</li>`).join('')}</ul>` : ''}</section>`).join('');
+  return `${pageHead('Information', escapeHtml(terms.title), 'Please read these before using the screening workflow. They are short and in plain language.')}
+    <div class="panel panel-pad terms-page">
+      <div class="terms-meta" role="note"><span>Version <strong>${escapeHtml(terms.version)}</strong></span><span>Last updated <strong>${escapeHtml(dateLabel(terms.last_updated, false))}</strong></span><span>${escapeHtml(termsStatusText())}</span></div>
+      <h2 class="panel-title" style="margin-top:16px">In short</h2><ul class="terms-summary">${terms.summary.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+      <nav aria-label="Sections of the terms"><ol class="terms-toc">${terms.sections.map((s) => `<li><a href="#terms-${escapeHtml(s.id)}" data-terms-anchor="terms-${escapeHtml(s.id)}">${escapeHtml(s.title.replace(/^\d+\.\s*/, ''))}</a></li>`).join('')}</ol></nav>
+      ${sections}
+      <p class="field-help">${escapeHtml(terms.review_note)}</p>
+      ${needs ? `<div class="terms-status" style="margin-top:14px"><button class="btn btn-primary" data-action="accept-terms">I have read and accept version ${escapeHtml(terms.version)}</button><span class="field-help">Accepting is not consent to research, image upload or sharing personal data.</span></div>` : ''}
+    </div>`;
+}
+
+// Turns plain https URLs in reviewed terms text into links; everything else stays escaped text.
+function linkify(text) {
+  return escapeHtml(text).replace(/https:\/\/[^\s<)]+[^\s<).,]/g, (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
+}
+
+function renderGetApp() {
+  const destination = validateDestination(APP_DISTRIBUTION);
+  const head = pageHead('Information', 'Get the AbhayNayan app', destination.ok && destination.kind === 'web_app'
+    ? 'There is no public Android release yet. Scanning this code opens the AbhayNayan web app; it does not install anything.'
+    : 'Scan the code with a phone camera to open the link.');
+  if (!destination.ok) {
+    return `${head}<div class="panel panel-pad"><h2 class="panel-title">The app link is not available yet</h2><p class="panel-copy">No verified installation page or web address is configured, so no QR code is shown. Ask the person who shared AbhayNayan with you for the official link.</p></div>`;
+  }
+  return `${head}<div class="panel panel-pad"><div class="qr-card">
+      <div class="qr-frame">${qrSvg(destination.url, { title: `QR code that opens ${destination.url}` })}</div>
+      <div><h2 class="panel-title">${escapeHtml(destination.label)}</h2><p class="panel-copy">${escapeHtml(destination.scanText)}</p>
+        <p class="panel-copy" style="margin-bottom:0"><strong>Cannot scan a QR code?</strong> Type this address into your phone’s web browser:</p>
+        <code class="qr-url" id="appLinkText">${escapeHtml(destination.url)}</code>
+        <div class="row" style="flex-wrap:wrap"><a class="btn btn-primary" href="${escapeHtml(destination.url)}" target="_blank" rel="noopener">${escapeHtml(destination.label)}</a><button class="btn btn-secondary" data-action="copy-app-link">Copy link</button></div>
+        <p class="field-help" style="margin-top:12px">Link checked on ${escapeHtml(dateLabel(APP_DISTRIBUTION.verifiedOn, false))}. The code is generated in this browser; the address is not sent to any QR service. Do not install AbhayNayan APK files shared by others: development builds are not distributed.</p></div>
+    </div></div>`;
+}
+
+const ASSISTANT_SUGGESTIONS = ['What does unable to estimate mean?', 'Why was my photo rejected?', 'Does the app work without internet?', 'Where can I find official information about anaemia?', 'Are my photos uploaded anywhere?'];
+const ASSISTANT_MODES = {
+  AGENT37: ['Worded by the Agent37-hosted assistant from approved help text', 'badge-blue'],
+  KNOWLEDGE_BASE: ['Approved help text', 'badge-green'],
+  REFUSED: ['Cannot help with this here', 'badge-amber'],
+  NO_ANSWER: ['No approved answer', 'badge-gray'],
+};
+
+function renderAssistant() {
+  const a = state.assistant;
+  const offline = state.simulateOffline || !navigator.onLine;
+  const result = a.result;
+  const [modeLabel, modeTone] = result ? ASSISTANT_MODES[result.mode] || ['Answer', 'badge-gray'] : ['', ''];
+  const sources = (result?.sources || []).map((s) => s.url.startsWith('app:')
+    ? `<li><button class="link-button" data-page="${s.url === 'app:terms' ? 'terms' : 'home'}">${escapeHtml(s.title)}</button></li>`
+    : `<li><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a></li>`).join('');
+  const answer = result ? `<section class="panel panel-pad assistant-answer" aria-labelledby="assistantAnswerTitle"><div class="row-between"><h2 class="panel-title" id="assistantAnswerTitle">Answer</h2><span class="badge ${modeTone}">${escapeHtml(modeLabel)}</span></div>
+      <p class="answer-text">${escapeHtml(result.answer)}</p>
+      ${sources ? `<h3 class="panel-title" style="font-size:14px">Source</h3><ul class="source-list">${sources}</ul>` : ''}
+      ${result.related?.length ? `<p class="field-help">Related: ${result.related.map((r) => `<button class="link-button" data-suggest="${escapeHtml(r.title)}">${escapeHtml(r.title)}</button>`).join(' · ')}</p>` : ''}
+      <p class="field-help">${escapeHtml(result.notice || 'General information only.')} Help text version ${escapeHtml(result.kb_version)}.</p></section>` : '';
+  return `${pageHead('Information', 'Help assistant', 'Ask a general question about using AbhayNayan. Answers come from approved help text and are in English only for now.')}
+    <div class="assistant-layout"><div>
+      <form class="panel panel-pad" id="assistantForm" novalidate><div class="form-field"><label for="assistantQuestion">Your question</label>
+        <textarea class="textarea" id="assistantQuestion" maxlength="500" rows="3" aria-describedby="assistantHint assistantCount" ${offline ? 'disabled' : ''}>${escapeHtml(a.question)}</textarea>
+        <span class="field-help" id="assistantHint">Do not include names, phone numbers, ID numbers, addresses, photos or medical details. Questions asking for a diagnosis or a value are not answered.</span>
+        <span class="char-count" id="assistantCount">${a.question.length} / 500</span></div>
+        <div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary" type="submit" ${offline || a.loading ? 'disabled' : ''}>${a.loading ? 'Asking…' : 'Ask'}</button>${offline ? '<span class="field-help">The help assistant needs a connection. The rest of the app works offline.</span>' : ''}</div>
+        <div class="suggestions" aria-label="Example questions">${ASSISTANT_SUGGESTIONS.map((q) => `<button type="button" class="suggestion" data-suggest="${escapeHtml(q)}" ${offline ? 'disabled' : ''}>${escapeHtml(q)}</button>`).join('')}</div>
+      </form>
+      ${a.error ? `<div class="safety-note danger" role="alert" style="margin-top:14px">${escapeHtml(a.error)}</div>` : ''}
+      <div aria-live="polite">${answer}</div></div>
+      <aside class="panel panel-pad"><h2 class="panel-title">What it can do</h2><ul class="limitations"><li>Explain how AbhayNayan works and what an outcome means</li><li>Explain why a photo may be rejected</li><li>Point to the terms and to official health information</li></ul>
+        <h2 class="panel-title" style="margin-top:14px">What it cannot do</h2><ul class="limitations"><li>Estimate hemoglobin or bilirubin, diagnose, or look at photos</li><li>Advise on medicines or say that anyone is healthy</li></ul>
+        <p class="field-help" style="margin-top:12px">For any health concern, contact a qualified health worker or doctor. In an emergency, call 112.</p></aside></div>`;
+}
+
+async function askAssistant(question) {
+  const text = String(question || '').trim();
+  state.assistant.question = text;
+  if (!text) { state.assistant.error = 'Type a question first.'; await render(); return; }
+  state.assistant.loading = true; state.assistant.error = ''; await render();
+  try {
+    state.assistant.result = await (await apiRequest('/api/assistant/ask', { method: 'POST', body: JSON.stringify({ question: text }), timeout: 70000 })).json();
+  } catch (error) {
+    state.assistant.result = null;
+    state.assistant.error = error.code === 'RATE_LIMITED' ? 'Too many questions. Please wait a minute and try again.'
+      : error.code === 'ASSISTANT_DISABLED' ? 'The help assistant is switched off on this server. The rest of the app works normally.'
+      : error.code === 'OFFLINE' ? 'You are offline. The help assistant needs a connection; the rest of the app works offline.'
+      : `The help assistant is unavailable right now (${error.message}). The rest of the app works normally.`;
+  } finally { state.assistant.loading = false; }
+  if (state.page === 'assistant') await render();
+}
+
+async function refreshTerms() {
+  try { state.terms = await loadTerms(); state.termsError = ''; }
+  catch (error) { state.terms = null; state.termsError = error.message || 'Terms could not be loaded.'; }
+}
+
+/** Resolves true when the current material terms version is accepted; otherwise shows the review dialog. */
+async function ensureTermsAccepted(continueWith) {
+  if (!state.terms) await refreshTerms();
+  if (state.terms && !acceptanceNeeded(state.terms, state.termsAccepted)) return true;
+  state.pendingStart = continueWith;
+  openTermsDialog();
+  return false;
+}
+
+function openTermsDialog() {
+  const modal = $('#modalRoot');
+  const terms = state.terms;
+  if (!terms) {
+    modal.innerHTML = `<div class="modal terms-dialog" role="dialog" aria-modal="true" aria-labelledby="termsDialogTitle"><div class="modal-head"><div><h2 id="termsDialogTitle">Terms could not be loaded</h2><p>A screening cannot start until the Terms &amp; Conditions have been shown. Connect to the internet once and try again.</p></div><button class="modal-close" data-action="close-modal" aria-label="Close">×</button></div><div class="dialog-actions"><button class="btn btn-secondary" data-action="close-modal">Close</button><button class="btn btn-primary" data-action="retry-terms">Try again</button></div></div>`;
+    return;
+  }
+  const changed = Boolean(state.termsAccepted);
+  modal.innerHTML = `<div class="modal terms-dialog" role="dialog" aria-modal="true" aria-labelledby="termsDialogTitle"><div class="modal-head"><div><h2 id="termsDialogTitle">${changed ? 'The terms have changed' : 'Before your first screening'}</h2><p>${changed ? `Please review version ${escapeHtml(terms.version)} of the Terms &amp; Conditions (updated ${escapeHtml(dateLabel(terms.last_updated, false))}).` : `Please review the Terms &amp; Conditions, version ${escapeHtml(terms.version)} (updated ${escapeHtml(dateLabel(terms.last_updated, false))}).`}</p></div><button class="modal-close" data-action="close-modal" aria-label="Close">×</button></div>
+    <ul>${terms.summary.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+    <p class="field-help">Accepting is recorded only on this device, with the version and time. It is not consent to research, image upload or sharing personal data.</p>
+    <div class="dialog-actions"><button class="btn btn-secondary" data-action="read-terms">Read the full terms</button><button class="btn btn-secondary" data-action="close-modal">Not now</button><button class="btn btn-primary" data-action="accept-terms">I have read and accept</button></div></div>`;
+  modal.querySelector('[data-action="accept-terms"]')?.focus();
+}
+
+async function acceptTerms() {
+  if (!state.terms) return;
+  state.termsAccepted = acceptanceRecord(state.terms);
+  await store.setSetting(ACCEPTANCE_SETTING, state.termsAccepted);
+  $('#modalRoot').innerHTML = '';
+  toast(`Terms version ${state.terms.version} accepted on this device.`);
+  const next = state.pendingStart; state.pendingStart = null;
+  if (next) await next(); else await render();
+}
+
+function updateFooter() {
+  const version = $('#footerVersion');
+  if (version) version.textContent = `AbhayNayan web prototype · API contract ${state.apiHealth?.api_contract_version || 'not connected'}`;
+  const terms = $('#footerTerms');
+  if (terms) terms.textContent = state.terms ? `Terms version ${state.terms.version} · updated ${state.terms.last_updated}` : 'Terms version —';
 }
 
 async function render() {
@@ -502,6 +684,9 @@ async function render() {
       case 'model': content.innerHTML = await renderModel(); break;
       case 'settings': content.innerHTML = await renderSettings(); break;
       case 'usage': content.innerHTML = renderUsage(); break;
+      case 'terms': content.innerHTML = renderTerms(); break;
+      case 'getapp': content.innerHTML = renderGetApp(); break;
+      case 'assistant': content.innerHTML = renderAssistant(); break;
       default: state.page = 'home'; content.innerHTML = await renderHome();
     }
     if (state.page === 'sync') refreshStorageStatus();
@@ -509,6 +694,8 @@ async function render() {
     content.innerHTML = `${pageHead('Application', 'Something needs attention', 'The local workflow is still protected; review the error and try again.')}<div class="safety-note">${escapeHtml(error.message || 'Unknown application error.')}</div>`;
   }
   $('#sidebar')?.classList.remove('open');
+  $('#mobileMenu')?.setAttribute('aria-expanded', 'false');
+  updateFooter();
   $('#mainContent')?.focus({ preventScroll: true });
 }
 
@@ -526,7 +713,9 @@ function selectDemoPatientForType(type) {
   if (matching) state.selectedPatientId = matching.id;
 }
 
-function startNew(type = null, patientId = null) {
+async function startNew(type = null, patientId = null) {
+  // Terms gate (docs/build2026/terms.md): a screening starts only after the current material version was accepted here.
+  if (!(await ensureTermsAccepted(() => startNew(type, patientId)))) return;
   stopCamera();
   state.page = 'new'; state.wizardStep = 1;
   state.screeningType = type || 'maternal_anemia';
@@ -538,7 +727,7 @@ function startNew(type = null, patientId = null) {
   state.syntheticImage = false; state.regionConfirmed = false; state.quality = null;
   state.opticalFeatures = null; state.ambientResult = null; state.captureAudit = null;
   state.lastRecord = null; state.counselling = null; state.referral = null;
-  render();
+  await render();
 }
 
 function stopCamera() {
@@ -855,6 +1044,7 @@ async function clearLocalData() {
   stopCamera(); await store.clearAllLocalData();
   state.patients = []; state.selectedPatientId = ''; state.workerName = 'Demo ASHA Worker'; state.phc = 'Demo PHC · Bihta';
   state.language = 'en'; state.simulateOffline = false; state.lastRecord = null; state.referral = null;
+  state.termsAccepted = await store.getSetting(ACCEPTANCE_SETTING, null);
   await store.ensureDemoPatient('maternal'); await store.ensureDemoPatient('newborn');
   state.patients = await store.getAll('patients');
   state.selectedPatientId = state.patients.find((person) => person.demoKind === 'maternal')?.id || state.patients[0]?.id || '';
@@ -866,8 +1056,15 @@ async function handleClick(event) {
   if (!target) return;
   if (target.dataset.page) {
     event.preventDefault();
-    if (target.dataset.page === 'new') { startNew(); return; }
+    if (target.dataset.page === 'new') { await startNew(); return; }
+    if (target.closest('#modalRoot')) $('#modalRoot').innerHTML = '';
     stopCamera(); state.page = target.dataset.page; await render(); return;
+  }
+  if (target.dataset.suggest) { await askAssistant(target.dataset.suggest); return; }
+  if (target.dataset.termsAnchor) {
+    event.preventDefault();
+    document.getElementById(target.dataset.termsAnchor)?.scrollIntoView({ block: 'start' });
+    return;
   }
   if (target.dataset.task) {
     state.screeningType = target.dataset.task;
@@ -879,15 +1076,26 @@ async function handleClick(event) {
   if (target.dataset.filter) { state.filter = target.dataset.filter; await render(); return; }
   if (target.dataset.langTab) { state.language = target.dataset.langTab; await store.setSetting('language', state.language); state.counselling = localCounsel(state.lastRecord?.result.screening_type || state.screeningType, state.language, state.lastRecord?.result.risk_category || 'DEMO_ONLY'); await render(); if (state.lastRecord) void loadCounselling(state.lastRecord); return; }
   if (target.dataset.screeningId) { openRecord(target.dataset.screeningId); return; }
-  if (target.dataset.patientId && target.dataset.action === 'screen-patient') { state.selectedPatientId = target.dataset.patientId; startNew(null, target.dataset.patientId); return; }
+  if (target.dataset.patientId && target.dataset.action === 'screen-patient') { state.selectedPatientId = target.dataset.patientId; await startNew(null, target.dataset.patientId); return; }
   const action = target.dataset.action;
   switch (action) {
-    case 'start-screening': startNew(); break;
-    case 'start-maternal': startNew('maternal_anemia'); break;
-    case 'start-jaundice': startNew('neonatal_jaundice'); break;
-    case 'new-screening': startNew(); break;
+    case 'start-screening': await startNew(); break;
+    case 'start-maternal': await startNew('maternal_anemia'); break;
+    case 'start-jaundice': await startNew('neonatal_jaundice'); break;
+    case 'new-screening': await startNew(); break;
+    case 'accept-terms': await acceptTerms(); break;
+    case 'read-terms': $('#modalRoot').innerHTML = ''; stopCamera(); state.page = 'terms'; await render(); break;
+    case 'retry-terms': await refreshTerms(); openTermsDialog(); break;
+    case 'reload-terms': await refreshTerms(); await render(); break;
+    case 'copy-app-link': {
+      const destination = validateDestination(APP_DISTRIBUTION);
+      if (!destination.ok) break;
+      try { await navigator.clipboard.writeText(destination.url); toast('Link copied.'); }
+      catch { toast('Copying is not available here. Select the address above and copy it.', 'warning'); }
+      break;
+    }
     case 'new-patient': await openNewPatient(); break;
-    case 'close-modal': $('#modalRoot').innerHTML = ''; break;
+    case 'close-modal': $('#modalRoot').innerHTML = ''; state.pendingStart = null; break;
     case 'wizard-next':
       if (state.wizardStep === 1) {
         if (!selectedPatient() || !state.screeningType) { toast('Select a local patient and workflow.', 'warning'); break; }
@@ -942,6 +1150,7 @@ async function handleChange(event) {
 async function handleSubmit(event) {
   if (event.target.id === 'patientModalForm') { event.preventDefault(); await savePatientForm(event.target); return; }
   if (event.target.id === 'usageForm') { event.preventDefault(); await loadUsage(event.target); return; }
+  if (event.target.id === 'assistantForm') { event.preventDefault(); await askAssistant(event.target.querySelector('#assistantQuestion').value); return; }
   if (event.target.id === 'settingsForm') {
     event.preventDefault(); const data = new FormData(event.target);
     state.workerName = String(data.get('workerName') || 'Demo ASHA Worker').trim().slice(0, 80) || 'Demo ASHA Worker';
@@ -958,6 +1167,7 @@ async function initialize() {
     state.workerName = await store.getSetting('workerName', 'Demo ASHA Worker');
     state.phc = await store.getSetting('phc', 'Demo PHC · Bihta');
     state.simulateOffline = Boolean(await store.getSetting('simulateOffline', false));
+    state.termsAccepted = await store.getSetting(ACCEPTANCE_SETTING, null);
     await store.ensureDemoPatient('maternal');
     await store.ensureDemoPatient('newborn');
     state.patients = await store.getAll('patients');
@@ -985,6 +1195,12 @@ async function initialize() {
       if (next) next.disabled = !(selectedPatient() && valid);
       return;
     }
+    if (event.target.id === 'assistantQuestion') {
+      state.assistant.question = event.target.value;
+      const count = $('#assistantCount');
+      if (count) count.textContent = `${event.target.value.length} / 500`;
+      return;
+    }
     if (event.target.id !== 'historySearch') return;
     state.search = event.target.value;
     const cursor = event.target.selectionStart;
@@ -996,7 +1212,15 @@ async function initialize() {
       if (input) { input.focus(); input.setSelectionRange(cursor, cursor); }
     }, 130);
   });
-  $('#mobileMenu')?.addEventListener('click', () => $('#sidebar')?.classList.toggle('open')); 
+  $('#mobileMenu')?.addEventListener('click', () => {
+    const open = $('#sidebar')?.classList.toggle('open');
+    $('#mobileMenu').setAttribute('aria-expanded', String(Boolean(open)));
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if ($('#modalRoot')?.innerHTML) { $('#modalRoot').innerHTML = ''; state.pendingStart = null; }
+    else if ($('#sidebar')?.classList.contains('open')) { $('#sidebar').classList.remove('open'); $('#mobileMenu')?.setAttribute('aria-expanded', 'false'); }
+  });
   $('#languageButton')?.addEventListener('click', async () => {
     const index = LANGUAGES.findIndex((item) => item.id === state.language);
     state.language = LANGUAGES[(index + 1) % LANGUAGES.length].id;
@@ -1007,6 +1231,7 @@ async function initialize() {
   $('#imagePicker')?.addEventListener('change', async (event) => { await openLocalFile(event.target.files?.[0]); event.target.value = ''; });
   window.addEventListener('online', () => { updateNetworkChip(); });
   window.addEventListener('offline', () => { updateNetworkChip(); });
+  await refreshTerms();
   updateNetworkChip(); await render();
 }
 

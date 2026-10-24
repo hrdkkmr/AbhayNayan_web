@@ -1,0 +1,44 @@
+# Proposed: AbhayNayan_apk/.github/workflows/android.yml (repository root, so GitHub actually runs it).
+name: Android checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Unit tests, lint, debug build, release artifact check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: AbhayNayan/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      # gradlew is stored without the execute bit (git mode 100644).
+      - run: chmod +x gradlew
+      # A clean checkout has no research assets (they are gitignored), so the release check must pass.
+      # The release APK/AAB are unsigned, used only for verification, and NOT uploaded.
+      - run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease :app:bundleRelease
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            AbhayNayan/android/app/build/reports/
+            AbhayNayan/android/app/build/test-results/
+          retention-days: 7

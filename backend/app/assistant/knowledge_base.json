@@ -1,0 +1,139 @@
+{
+  "id": "abhaynayan.assistant-kb",
+  "kb_version": "2026-10-24.1",
+  "language": "en",
+  "review_status": "Drafted by the AbhayNayan project team for a research prototype. Not reviewed by a clinician, a lawyer or a native-speaker reviewer.",
+  "allowed_source_hosts": ["www.who.int", "www.mohfw.gov.in", "nhm.gov.in", "github.com", "abhaynayan-web.onrender.com"],
+  "entries": [
+    {
+      "id": "about-abhaynayan",
+      "title": "What AbhayNayan is",
+      "keywords": ["what is abhaynayan", "abhaynayan", "about abhaynayan", "about the app", "about this app", "purpose", "what does this app do", "what is this app", "who is it for"],
+      "answer": "AbhayNayan is a research and design prototype of a guided screening workflow for community health work. It helps a user choose a workflow, read short capture instructions, take or import a photo, check the photo's quality on the device, keep a local record and prepare a referral summary. It does not currently measure hemoglobin or bilirubin, and it is not a medical device.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "not-a-diagnosis",
+      "title": "What AbhayNayan does not do",
+      "keywords": ["diagnose", "diagnosis", "measure", "hemoglobin", "haemoglobin", "bilirubin", "hb", "anemia", "anaemia", "jaundice", "accurate", "accuracy", "validated", "estimate"],
+      "answer": "AbhayNayan does not diagnose anemia, jaundice or any other condition, and it does not have a clinically validated way to estimate hemoglobin or bilirubin from a photo. Research models are switched off. When the app cannot produce a supported estimate it says so instead of showing a number. Values in demo profiles are fixed synthetic examples, not measurements. Only a qualified health worker or doctor, using appropriate tests, can assess a person.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "how-to-use",
+      "title": "How to use the app",
+      "keywords": ["how to use", "how do i use", "start", "begin", "steps", "workflow", "screening", "capture", "take a photo", "camera", "gallery", "import"],
+      "answer": "Open Home and choose a workflow. Read the short instructions for that workflow, then take a photo with the camera or import one from the gallery. The app checks the photo's quality on the device and tells you if it needs to be retaken. You then see the outcome: either a clearly labelled result, or a message explaining why no estimate was produced. You can save the record and view it later under Records.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "image-rejected",
+      "title": "Why an image may be rejected",
+      "keywords": ["rejected", "reject", "refused", "not accepted", "retake", "blurry", "blur", "dark", "too bright", "lighting", "photo quality", "image quality", "why was my image", "why was my photo", "supported input", "wrong image"],
+      "answer": "A photo can be rejected if it is blurred, too dark or too bright, badly framed, or not the kind of image the workflow expects. Image quality and supported input are separate checks. A sharp, well-lit photo can still be refused if it does not show the required region, or if it comes from a source that the workflow does not support. Retake the photo following the on-screen instructions. A rejected photo says nothing about the person's health.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "unable-to-estimate",
+      "title": "What 'unable to estimate' means",
+      "keywords": ["unable to estimate", "unable_to_estimate", "no estimate", "no result", "no value", "no number", "why no number", "could not estimate", "estimate not available"],
+      "answer": "'Unable to estimate' means the app did not produce a value for this attempt, for example because no validated model is available, the input is not supported, or the output was discarded as implausible. It is not a normal result and it does not mean the person is healthy. If there is any concern about the person's health, they should be assessed by a qualified health worker or doctor.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "error-outcome",
+      "title": "What an 'error' outcome means",
+      "keywords": ["error", "failed", "analysis failed", "something went wrong", "crash", "error outcome"],
+      "answer": "An 'error' outcome means the analysis started but failed because of a software or system problem. No value is shown and none should be inferred. The attempt is saved as a record without a value so that it is not lost. You can try again, and you can report the problem if it keeps happening.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "demo-values",
+      "title": "Demo and synthetic values",
+      "keywords": ["demo", "synthetic", "fixture", "example value", "sample", "demo value", "synthetic fixture", "fake", "test value"],
+      "answer": "Demo profiles can show fixed synthetic example values so that people can see how a result screen looks. These values are chosen from a small list of examples. They are not calculated from the photo or the person and they are always labelled as synthetic. They must never be used for any care decision.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "find-terms",
+      "title": "Where to find the Terms & Conditions",
+      "keywords": ["terms", "conditions", "terms and conditions", "terms version", "privacy policy", "rules", "agreement", "accept", "consent"],
+      "answer": "Open Settings and choose Terms & Conditions. The page shows the current terms version and its last-updated date. On this phone or browser, it also shows whether and when you accepted them. Accepting the terms is not consent to research participation, image upload or sharing personal data.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "offline-use",
+      "title": "Using the app with limited connectivity",
+      "keywords": ["offline", "no internet", "internet", "network", "connectivity", "without internet", "poor signal", "data connection"],
+      "answer": "The screening workflow, photo checks, saved records and referral summaries work without internet. The app does not need a connection to save a record. Features that need a server, such as optional counselling wording and this assistant, are unavailable when you are offline. The rest of the app keeps working.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "sync-status",
+      "title": "What sync does and does not do",
+      "keywords": ["sync", "synced", "synchronise", "synchronize", "upload", "server", "backup", "cloud", "pending"],
+      "answer": "Records are saved on the device first. At present only synthetic demo records can be sent to the demo server, and only as a short summary with a pseudonymous ID and no photo. Sync of full outcome records is switched off because the server does not yet have a compatible, authenticated endpoint. A record that stays on the device is not lost, and the app never shows a record as synced unless the server confirmed it.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "privacy-photos",
+      "title": "Photos, privacy and storage",
+      "keywords": ["privacy", "photo stored", "photos uploaded", "is my photo", "data", "personal data", "encrypted", "encryption", "storage", "who can see", "delete", "delete data"],
+      "answer": "Photos are checked on the device and are not uploaded. On Android, records are kept in an encrypted database on the phone. In the web app, records stay in the browser's own storage, which is not encrypted by the app. Do not enter real patient information into this prototype. You can delete all local data from Settings.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "seek-care",
+      "title": "Seeking a health assessment",
+      "keywords": ["doctor", "health worker", "asha", "anm", "clinic", "hospital", "phc", "health centre", "health center", "see a doctor", "what should i do", "worried", "concern", "symptoms", "tired", "pale", "yellow"],
+      "answer": "If you are worried about anyone's health, including tiredness, pale skin, or yellow skin or eyes in a newborn, contact a qualified health worker, such as your local ASHA or ANM, or a doctor at a health centre or hospital. They can examine the person and arrange appropriate tests. AbhayNayan cannot tell you whether someone is unwell or well.",
+      "sources": [{"title": "Ministry of Health and Family Welfare, Government of India", "url": "https://www.mohfw.gov.in/"}]
+    },
+    {
+      "id": "emergency",
+      "title": "Emergencies",
+      "keywords": ["emergency", "urgent", "ambulance", "danger sign", "danger signs", "serious", "immediately"],
+      "answer": "If someone may be seriously ill, do not wait for an app. Call 112, India's national emergency number, or go to the nearest health facility straight away. Tell the health worker or doctor what you have noticed.",
+      "sources": [{"title": "Ministry of Health and Family Welfare, Government of India", "url": "https://www.mohfw.gov.in/"}]
+    },
+    {
+      "id": "official-sources",
+      "title": "Where to find official health information",
+      "keywords": ["official", "information", "learn more", "read more", "world health organization", "ministry", "government", "fact sheet", "public health", "reliable source"],
+      "answer": "For general, official public health information, see the World Health Organization's anaemia fact sheet and the websites of India's Ministry of Health and Family Welfare and the National Health Mission. These links are provided for information only and do not imply that any of these organisations endorses AbhayNayan.",
+      "sources": [
+        {"title": "WHO fact sheet: Anaemia", "url": "https://www.who.int/news-room/fact-sheets/detail/anaemia"},
+        {"title": "Ministry of Health and Family Welfare, Government of India", "url": "https://www.mohfw.gov.in/"},
+        {"title": "National Health Mission", "url": "https://nhm.gov.in/"}
+      ]
+    },
+    {
+      "id": "get-the-app",
+      "title": "Getting the app",
+      "keywords": ["get the app", "download", "install", "apk", "play store", "qr", "qr code", "android app", "link", "share the app"],
+      "answer": "There is no public Android release yet. The QR code under 'Get the AbhayNayan app' in Settings and in the web footer opens the AbhayNayan web app at https://abhaynayan-web.onrender.com/ in a phone's browser. Do not install AbhayNayan APK files shared by other people: development builds are not distributed.",
+      "sources": [{"title": "AbhayNayan web app", "url": "https://abhaynayan-web.onrender.com/"}]
+    },
+    {
+      "id": "assistant-limits",
+      "title": "What this assistant can and cannot do",
+      "keywords": ["assistant", "chatbot", "bot", "who are you", "what can you do", "help", "ai", "can you"],
+      "answer": "This assistant answers general questions about AbhayNayan from a small, approved set of information. It cannot look at photos, estimate hemoglobin or bilirubin, diagnose, give advice about medicines, or say whether someone is healthy. If it has no approved answer, it says so. Please do not share names, phone numbers, ID numbers, addresses or medical details.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    },
+    {
+      "id": "report-problem",
+      "title": "Reporting a problem",
+      "keywords": ["report", "problem", "bug", "issue", "feedback", "contact", "complaint", "support"],
+      "answer": "You can report a problem on the project's public issue tracker at https://github.com/hrdkkmr/AbhayNayan_web/issues. Describe what you did and what you saw. Do not include names, phone numbers, photos or any health information, because issues are public.",
+      "sources": [{"title": "AbhayNayan issue tracker", "url": "https://github.com/hrdkkmr/AbhayNayan_web/issues"}]
+    },
+    {
+      "id": "languages",
+      "title": "Languages",
+      "keywords": ["language", "hindi", "bhojpuri", "english", "translation", "translate"],
+      "answer": "The app's main labels are available in English, Hindi and Bhojpuri. The Hindi and Bhojpuri wording was drafted for this prototype and has not yet been reviewed by fluent speakers. The Terms & Conditions and this assistant are in English only for now.",
+      "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}]
+    }
+  ]
+}

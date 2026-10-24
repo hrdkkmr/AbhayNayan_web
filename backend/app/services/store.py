@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,12 @@ def connect() -> sqlite3.Connection:
     conn.execute('PRAGMA foreign_keys=ON')
     conn.execute('PRAGMA journal_mode=WAL')
     return conn
+
+
+def ping() -> None:
+    """Readiness probe: opens the database and runs a trivial query. Raises on failure."""
+    with closing(connect()) as conn:
+        conn.execute('SELECT 1').fetchone()
 
 
 def init_db() -> None:

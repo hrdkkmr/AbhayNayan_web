@@ -20,7 +20,9 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.ml import features as F, imageio, quality as Q, registry as R
+from app.models.schemas import API_CONTRACT_VERSION
 from app.services import gemini, store
+from conftest import research_token_headers
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_DIR = ROOT / 'tests' / 'fixtures' / 'ml_golden'
@@ -87,9 +89,12 @@ def fake_registry(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    """Authenticated as a research operator: these tests cover behaviour behind authentication (test_security.py covers the rest)."""
     monkeypatch.setattr(store, 'DB_PATH', tmp_path / 'test.sqlite3')
     monkeypatch.setattr(gemini, 'API_KEY', '')
+    headers = research_token_headers(monkeypatch)
     with TestClient(app) as c:
+        c.headers.update(headers)
         yield c
 
 
@@ -329,6 +334,7 @@ def test_models_endpoint_reports_status_without_paths(client, fake_registry, ena
     assert ':\\' not in text and '/models/' not in text and 'tmp' not in text.lower()
 
 
+@pytest.mark.usefixtures('test_body_site_verifier')
 def test_hemoglobin_route_success_schema(client, fake_registry, enabled):
     fake_registry()
     r = client.post('/api/ml/hemoglobin', content=png_bytes(conjunctiva_like()), headers={'Content-Type': 'image/png'})
@@ -339,12 +345,14 @@ def test_hemoglobin_route_success_schema(client, fake_registry, enabled):
     assert b['model_id'] == 'hb-hgb-cf' and b['model_version'] == 'fake-1' and b['feature_version'] == 'cf-v1'
     assert 'RESEARCH_ONLY_NOT_VALIDATED' in b['warnings'] and b['input']['image_retained'] is False
     assert b['quality']['passed'] is True and 'risk_category' not in b
-    assert r.headers['X-AbhayNayan-Contract-Version'] == '1.1.0'
+    assert r.headers['X-AbhayNayan-Contract-Version'] == API_CONTRACT_VERSION
 
 
+@pytest.mark.usefixtures('test_body_site_verifier')
 def test_jaundice_route_is_a_class_score_not_bilirubin(client, fake_registry, enabled):
     fake_registry()
-    r = client.post('/api/ml/neonatal-jaundice-class', content=png_bytes(conjunctiva_like()), headers={'Content-Type': 'image/png'})
+    # The NJN model was trained on whole opaque newborn photos (Phase 5: masked crops are refused), so send an opaque image.
+    r = client.post('/api/ml/neonatal-jaundice-class', content=png_bytes(conjunctiva_like()[..., :3].copy()), headers={'Content-Type': 'image/png'})
     assert r.status_code == 200, r.text
     b = r.json()
     assert b['score'] == 0.5 and b['unit'] is None and 'estimate' not in b
@@ -374,18 +382,22 @@ def test_route_rejects_oversized_body(client, fake_registry, enabled):
 
 def test_route_quality_rejection_lists_issues(client, fake_registry, enabled):
     fake_registry()
-    r = client.post('/api/ml/hemoglobin', content=png_bytes(np.full((64, 64, 3), 128, np.uint8)), headers={'Content-Type': 'image/png'})
+    flat = np.full((64, 64, 4), 128, np.uint8)
+    flat[:8, :, 3] = 0  # segmented form (mask present), so the quality gate is what refuses it
+    r = client.post('/api/ml/hemoglobin', content=png_bytes(flat), headers={'Content-Type': 'image/png'})
     assert r.status_code == 422 and r.json()['error']['code'] == 'IMAGE_QUALITY_REJECTED'
     assert any(f['message'] == 'BLURRED_OR_FLAT' for f in r.json()['error']['fields'])
 
 
 @pytest.mark.parametrize('intercept,status,code', [(30.0, 422, 'OUTPUT_OUT_OF_RANGE'), (1.0, 422, 'OUTPUT_OUT_OF_RANGE')])
+@pytest.mark.usefixtures('test_body_site_verifier')
 def test_out_of_range_hb_is_discarded(client, fake_registry, enabled, intercept, status, code):
     fake_registry(hb=fake_linear(intercept))
     r = client.post('/api/ml/hemoglobin', content=png_bytes(conjunctiva_like()), headers={'Content-Type': 'image/png'})
     assert r.status_code == status and r.json()['error']['code'] == code and 'estimate' not in r.json()
 
 
+@pytest.mark.usefixtures('test_body_site_verifier')
 def test_inference_exception_never_returns_a_value(client, fake_registry, enabled, monkeypatch):
     reg = fake_registry()
     model = reg.get('hb-hgb-cf')
@@ -398,6 +410,7 @@ def test_inference_exception_never_returns_a_value(client, fake_registry, enable
     assert 'estimate' not in r.json() and 'secret' not in r.text
 
 
+@pytest.mark.usefixtures('test_body_site_verifier')
 def test_non_finite_output_is_an_error(client, fake_registry, enabled, monkeypatch):
     reg = fake_registry()
     monkeypatch.setattr(reg.get('hb-hgb-cf'), 'runner', lambda *_: float('nan'))
@@ -412,11 +425,14 @@ def test_unavailable_artifact_returns_503(client, tmp_path, enabled, monkeypatch
     assert r.status_code == 503 and r.json()['error']['code'] == 'MODEL_UNAVAILABLE'
 
 
-def test_out_of_distribution_warning(client, fake_registry, enabled):
+def test_out_of_distribution_input_is_refused(client, fake_registry, enabled):
+    # Phase 5 / contract D3: out-of-distribution inputs give no value (previously: a value plus a warning; audit H2).
     n = len(F.FEATURE_NAMES)
     fake_registry(hb=fake_linear(training={'feature_min': [0.0] * n, 'feature_max': [1e-3] * n}))
-    b = client.post('/api/ml/hemoglobin', content=png_bytes(conjunctiva_like()), headers={'Content-Type': 'image/png'}).json()
-    assert 'INPUT_OUTSIDE_TRAINING_DISTRIBUTION' in b['warnings'] and b['out_of_distribution_features']
+    r = client.post('/api/ml/hemoglobin', content=png_bytes(conjunctiva_like()), headers={'Content-Type': 'image/png'})
+    b = r.json()
+    assert r.status_code == 422 and b['error']['code'] == 'INPUT_OUT_OF_DISTRIBUTION' and 'estimate' not in b
+    assert b['error']['fields'] and b['prediction']['reason_code'] == 'INPUT_OUT_OF_DISTRIBUTION' and b['prediction']['estimate'] is None
 
 
 def test_existing_disabled_safeguards_unchanged(client, monkeypatch):
@@ -457,6 +473,7 @@ def test_real_artifacts_reproduce_golden_outputs(case):
 
 
 @real_artifact
+@pytest.mark.usefixtures('test_body_site_verifier')
 def test_real_hemoglobin_route_end_to_end(client, enabled, monkeypatch):
     import app.main as main
     monkeypatch.setattr(main, 'REGISTRY', R.Registry())
@@ -467,8 +484,11 @@ def test_real_hemoglobin_route_end_to_end(client, enabled, monkeypatch):
 
 @real_artifact
 def test_real_jaundice_route_end_to_end(client, enabled, monkeypatch):
+    # The golden skin image is outside the NJN model's training range on 8 colour features, so since Phase 5 the route
+    # refuses it (contract D3). Golden score reproduction is still checked directly in test_real_artifacts_reproduce_golden_outputs.
     import app.main as main
     monkeypatch.setattr(main, 'REGISTRY', R.Registry())
-    case = next(c for c in GOLDEN['cases'] if c['name'] == 'skin_rgb_large')
-    b = client.post('/api/ml/neonatal-jaundice-class', content=golden_png('skin_rgb_large'), headers={'Content-Type': 'image/png'}).json()
-    assert abs(b['score'] - case['outputs']['njn-mnv3-logreg']) < 1e-3
+    r = client.post('/api/ml/neonatal-jaundice-class', content=golden_png('skin_rgb_large'), headers={'Content-Type': 'image/png'})
+    b = r.json()
+    assert r.status_code == 422 and b['error']['code'] == 'INPUT_OUT_OF_DISTRIBUTION' and 'score' not in b
+    assert b['prediction']['status'] == 'unable_to_estimate' and b['prediction']['estimate'] is None

@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#123642">
-  <meta name="description" content="Offline-first screening workflow prototype for frontline health workers. Demo mode only; not a diagnosis.">
+  <meta name="theme-color" content="#12304f">
+  <meta name="description" content="AbhayNayan: a research and design prototype of an offline-first community health screening workflow. Not a medical device or diagnosis.">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/assets/abhaynayan-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/app.css">
-  <title>AbhayNayan · Frontline Screening Assistant</title>
+  <title>AbhayNayan · Community Health Screening Prototype</title>
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -16,41 +16,54 @@
     <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
       <div class="brand-lockup">
         <div class="brand-mark" aria-hidden="true"><span>अ</span></div>
-        <div><div class="brand-name">ABHAYNAYAN</div><div class="brand-tag">FRONTLINE SCREENING</div></div>
+        <div><div class="brand-name">AbhayNayan</div><div class="brand-tag">Community health screening</div></div>
       </div>
-      <div class="demo-ribbon"><span class="pulse-dot"></span> PROTOTYPE / DEMO MODE</div>
+      <button class="prototype-label" data-page="terms" aria-label="Research prototype. Read the Terms and Conditions">ⓘ Research prototype · Terms</button>
       <nav class="side-nav" id="sideNav">
-        <button class="nav-item active" data-page="home"><span class="nav-icon">⌂</span><span>Home</span></button>
-        <button class="nav-item nav-primary" data-page="new"><span class="nav-icon">＋</span><span>New screening</span></button>
-        <button class="nav-item" data-page="patients"><span class="nav-icon">♙</span><span>Patients</span></button>
-        <button class="nav-item" data-page="history"><span class="nav-icon">◷</span><span>History</span></button>
-        <button class="nav-item" data-page="sync"><span class="nav-icon">⇄</span><span>Sync queue</span><span class="nav-count" id="navPending">0</span></button>
-        <div class="nav-section-label">CLINICAL WORKSPACE</div>
-        <button class="nav-item" data-page="phc"><span class="nav-icon">▤</span><span>PHC dashboard</span></button>
-        <button class="nav-item" data-page="architecture"><span class="nav-icon">⌘</span><span>Pipeline & architecture</span></button>
-        <button class="nav-item" data-page="model"><span class="nav-icon">◈</span><span>Model & data audit</span></button>
-        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
-        <button class="nav-item" data-page="usage"><span class="nav-icon">∑</span><span>AI usage (admin)</span></button>
+        <button class="nav-item active" data-page="home"><span class="nav-icon" aria-hidden="true">⌂</span><span>Home</span></button>
+        <button class="nav-item nav-primary" data-page="new"><span class="nav-icon" aria-hidden="true">＋</span><span>New screening</span></button>
+        <button class="nav-item" data-page="patients"><span class="nav-icon" aria-hidden="true">♙</span><span>Patients</span></button>
+        <button class="nav-item" data-page="history"><span class="nav-icon" aria-hidden="true">◷</span><span>History</span></button>
+        <button class="nav-item" data-page="sync"><span class="nav-icon" aria-hidden="true">⇄</span><span>Sync queue</span><span class="nav-count" id="navPending" aria-label="queued records">0</span></button>
+        <div class="nav-section-label">Information</div>
+        <button class="nav-item" data-page="assistant"><span class="nav-icon" aria-hidden="true">?</span><span>Help assistant</span></button>
+        <button class="nav-item" data-page="terms"><span class="nav-icon" aria-hidden="true">§</span><span>Terms &amp; Conditions</span></button>
+        <button class="nav-item" data-page="getapp"><span class="nav-icon" aria-hidden="true">▦</span><span>Get the app</span></button>
+        <div class="nav-section-label">Clinical workspace</div>
+        <button class="nav-item" data-page="phc"><span class="nav-icon" aria-hidden="true">▤</span><span>PHC dashboard</span></button>
+        <button class="nav-item" data-page="architecture"><span class="nav-icon" aria-hidden="true">⌘</span><span>Pipeline & architecture</span></button>
+        <button class="nav-item" data-page="model"><span class="nav-icon" aria-hidden="true">◈</span><span>Model & data audit</span></button>
+        <button class="nav-item" data-page="settings"><span class="nav-icon" aria-hidden="true">⚙</span><span>Settings</span></button>
+        <button class="nav-item" data-page="usage"><span class="nav-icon" aria-hidden="true">∑</span><span>AI usage (admin)</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="worker-mini"><div class="avatar">AS</div><div class="worker-mini-copy"><strong id="workerMiniName">Demo ASHA Worker</strong><span id="workerMiniPhc">Demo PHC · Bihta</span></div><button class="icon-button" data-page="settings" aria-label="Edit worker profile">⋯</button></div>
-        <div class="privacy-note"><span>▣</span><span>Local-first demo · no photo upload</span></div>
+        <div class="worker-mini"><div class="avatar" aria-hidden="true">AS</div><div class="worker-mini-copy"><strong id="workerMiniName">Demo ASHA Worker</strong><span id="workerMiniPhc">Demo PHC · Bihta</span></div><button class="icon-button" data-page="settings" aria-label="Edit worker profile">⋯</button></div>
+        <div class="privacy-note"><span aria-hidden="true">▣</span><span>Photos stay on this device</span></div>
       </div>
     </aside>
 
     <div class="main-column">
       <header class="topbar">
-        <button class="mobile-menu icon-button" id="mobileMenu" aria-label="Toggle navigation">☰</button>
-        <div class="breadcrumb"><span>AbhayNayan</span><span class="crumb-sep">/</span><strong id="currentSection">Home</strong></div>
+        <button class="mobile-menu icon-button" id="mobileMenu" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <div class="breadcrumb"><span>AbhayNayan</span><span class="crumb-sep" aria-hidden="true">/</span><strong id="currentSection">Home</strong></div>
         <div class="topbar-actions">
-          <div class="network-chip online" id="networkChip"><span class="network-dot"></span><span id="networkLabel">ONLINE</span></div>
-          <button class="language-switch" id="languageButton" aria-label="Change language"><span class="language-symbol">अ</span><span id="languageLabel">हिन्दी</span><span class="chevron">⌄</span></button>
+          <div class="network-chip online" id="networkChip" role="status"><span class="network-dot" aria-hidden="true"></span><span id="networkLabel">ONLINE</span></div>
+          <button class="language-switch" id="languageButton" aria-label="Change language"><span class="language-symbol">अ</span><span id="languageLabel">हिन्दी</span><span class="chevron" aria-hidden="true">⌄</span></button>
           <button class="avatar avatar-top" data-page="settings" aria-label="Worker settings">AS</button>
         </div>
       </header>
 
       <main id="mainContent" class="main-content" tabindex="-1" aria-live="polite"></main>
-      <footer class="app-footer"><span>ABHAYNAYAN · PROTOTYPE BUILD 0.2 · API CONTRACT 1.1.0</span><span>Screening estimates only · clinical confirmation required</span></footer>
+      <footer class="app-footer">
+        <div class="footer-inner">
+          <div class="footer-grid">
+            <section><h2>About AbhayNayan</h2><p>A research and design prototype of an offline-first screening workflow for community health work. It is not a medical device, does not diagnose, and is not affiliated with or endorsed by any government body.</p></section>
+            <section><h2>Information</h2><ul class="footer-links"><li><button data-page="terms">Terms &amp; Conditions</button></li><li><button data-page="assistant">Help assistant</button></li><li><a href="https://github.com/hrdkkmr/AbhayNayan_web/issues" target="_blank" rel="noopener">Report a problem</a></li></ul></section>
+            <section><h2>Get the AbhayNayan app</h2><ul class="footer-links"><li><button data-page="getapp">Show the QR code and link</button></li><li><button data-page="settings">Settings</button></li></ul></section>
+          </div>
+          <div class="footer-bottom"><span id="footerVersion">AbhayNayan web prototype · API contract: not connected</span><span id="footerTerms">Terms version —</span></div>
+        </div>
+      </footer>
     </div>
   </div>
 

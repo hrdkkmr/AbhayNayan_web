@@ -1,0 +1,32 @@
+--- a/.github/workflows/ci.yml	2026-10-24 19:20:18.233996800 +0530
++++ b/.github/workflows/ci.yml	2026-10-24 19:20:18.373456500 +0530
+@@ -38,23 +38,13 @@
+       - run: npm run test:ui
+       - run: npm run check:web
+ 
+-  android:
+-    name: Android compile, unit tests, and debug APK
++  release-artifacts:
++    name: Release ZIP contains no research model artifacts
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+-      - uses: actions/setup-java@v4
++      - uses: actions/setup-python@v5
+         with:
+-          distribution: temurin
+-          java-version: '17'
+-          cache: gradle
+-      - uses: gradle/actions/setup-gradle@v4
+-      - name: Assemble and run unit tests
+-        working-directory: android
+-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+-      - uses: actions/upload-artifact@v4
+-        with:
+-          name: abhaynayan-android-debug-apk
+-          path: android/app/build/outputs/apk/debug/app-debug.apk
+-          if-no-files-found: error
+-          retention-days: 14
++          python-version: '3.13'
++      - run: python scripts/package_release.py --output dist/abhaynayan-ci-check.zip
++      - run: python scripts/check_release_artifacts.py dist/abhaynayan-ci-check.zip

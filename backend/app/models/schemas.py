@@ -6,7 +6,7 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Shared web/Android contract version. Bump MINOR for additive fields, MAJOR for breaking changes.
-API_CONTRACT_VERSION = '1.1.0'
+API_CONTRACT_VERSION = '1.4.0'
 
 ScreeningType = Literal['maternal_anemia', 'neonatal_jaundice']
 LanguageCode = Literal['en', 'hi', 'bho']
@@ -214,6 +214,13 @@ class ReferralRequest(BaseModel):
     @classmethod
     def safe_id(cls, value: str | None) -> str | None:
         return _safe_id(value)
+
+
+class AssistantAskRequest(BaseModel):
+    """General information question for the assistant (contract 1.4.0). No identifiers, records or images."""
+    model_config = ConfigDict(extra='forbid')
+    question: str = Field(min_length=1, max_length=500)
+    language: Literal['en'] = 'en'
 
 
 class GeminiCounselRequest(BaseModel):

@@ -1,6 +1,6 @@
 # AbhayNayan API contract
 
-Contract version: `1.1.0` · Applies to: FastAPI backend in this repository, the PWA in `web-dashboard/`, and the Android app (`shubhamcore/AbhayNayan_apk`).
+Contract version: `1.4.0` · Applies to: FastAPI backend in this repository, the PWA in `web-dashboard/`, and the Android app (`shubhamcore/AbhayNayan_apk`).
 
 The machine-readable schema is served at `/openapi.json` (interactive at `/docs`). The Pydantic models in [`backend/app/models/schemas.py`](../backend/app/models/schemas.py) are the source of truth. If this document and the code disagree, the code wins; please report the mismatch. Examples below were captured from the running API.
 
@@ -36,6 +36,32 @@ The machine-readable schema is served at `/openapi.json` (interactive at `/docs`
 | New `image_models`, `image_models_enabled` in `GET /api/model/status`; `image_upload_endpoints` in `GET /api/vision/capabilities` | Additive response fields |
 | New error codes listed in [ml_integration.md §2](ml_integration.md); status codes 413 and 415 now use the error envelope | Additive |
 | `/api/screenings`, `/api/sync`, fixtures and the disabled bilirubin adapter | Unchanged |
+
+### Changes in 1.4.0 (24 October 2026, Build 2026 phase)
+
+| Change | Compatibility |
+|---|---|
+| New `GET /api/assistant` (availability, knowledge-base version) and `POST /api/assistant/ask` (general, non-clinical information question; §4.8). New error code `503 ASSISTANT_DISABLED`; `429 RATE_LIMITED` with `Retry-After` | Additive. No existing route, request or response changed |
+| `GET /api/ready`: new `components.integrations.assistant` {`enabled`, `provider`, `agent37`} | Additive field |
+| `/api/screenings`, `/api/sync`, counselling, referrals, FHIR, research routes | Unchanged |
+
+### Changes in 1.3.0 (24 October 2026, Phase 5)
+
+| Change | Compatibility |
+|---|---|
+| Research image routes return the contract 2.0 envelope as `prediction` (docs/prediction_contract.md): on success (`status: estimated`, `model_status: research_only`) and, as an extra field of the error body, on every refusal after the model check (`unable_to_estimate` / `error`, with `reason_code`). The envelope never carries a value with a refusal | Additive field |
+| **Compatibility gates (tightening, research routes only):** `/api/ml/hemoglobin` refuses images without a segmentation mask, `422 TARGET_REGION_INCOMPATIBLE` (the models were trained on expert-segmented crops; app-style rectangle crops are incompatible, audit H3). `/api/ml/neonatal-jaundice-class` refuses masked crops, `422 MODALITY_UNSUPPORTED`. **Out-of-distribution inputs are refused** with `422 INPUT_OUT_OF_DISTRIBUTION` instead of being scored with a warning (contract D3, audit H2). The legacy warning `INPUT_OUTSIDE_TRAINING_DISTRIBUTION` is no longer emitted; `out_of_distribution_features` is always `[]` on success | Behaviour change on research-only routes that no released client calls (same reasoning as 1.2.0) |
+| `/api/screenings`, `/api/sync`, counselling, referrals, FHIR | Unchanged. The 1.x `ScreeningResult` still requires a number and cannot represent `unable_to_estimate`; MODEL mode keeps returning errors for unavailable models. Migration: Android stores 2.0 envelopes locally (Room v3, encrypted v4 since Phase 6); server-side storage and sync of envelopes need the endpoint specified in §7 (proposed, not implemented) |
+
+### Changes in 1.2.0 (24 October 2026, Phase 4)
+
+| Change | Compatibility |
+|---|---|
+| `POST /api/ml/hemoglobin`, `POST /api/ml/neonatal-jaundice-class` and `POST /api/screenings` with `inference_mode: MODEL` now require `Authorization: Bearer <access token>` with the `research_operator` role, checked **before** the operator flag and before the body is read. New errors: `401 UNAUTHENTICATED`, `401 TOKEN_INVALID`, `401 TOKEN_EXPIRED` (all with `WWW-Authenticate: Bearer`), `403 FORBIDDEN`, `429 RATE_LIMITED` (with `Retry-After`), `503 AUTH_NOT_CONFIGURED` | **Deliberate exception to the MINOR rule.** This tightens previously open research-only routes (audit M6). No released client calls them: Android and the PWA never call `/api/ml/*` or MODEL mode. A MAJOR bump would push the Android app into its legacy contract (`Contract.fromVersion` accepts only `1.x`) and break demo sync |
+| New `GET /api/ready`: component readiness (configuration, database, each registered model's artifact/checksum/compatibility, research flag, integrations, `clinical_inference`) | Additive. 200 when operational (`ready`/`degraded`), 503 when `not_ready` |
+| Uploaded images are normalised to display orientation using the EXIF tag (JPEG APP1, PNG eXIf); the response adds `input.orientation` {`exif_tag`, `status`, `applied`}. An unreadable tag gives warning `ORIENTATION_UNKNOWN` for Hb and `422 ORIENTATION_UNKNOWN` for the CNN jaundice-class route | Additive field; behaviour fix (audit M2) |
+| `ABHAYNAYAN_MAX_IMAGE_BYTES` can lower the 8 MB upload limit; the 413 message no longer states a size | Additive |
+| `/api/screenings` DEMO mode, `/api/sync`, counselling, referrals, FHIR | Unchanged, no authentication yet (they accept synthetic demo records only; per-user authorization is Phase 8) |
 
 ## 2. Shared types
 
@@ -155,6 +181,7 @@ Data class: **demo** = synthetic fixtures only; **experimental** = research outp
 | `POST /api/fhir` | FHIR R4-style bundle for a demo result | none | demo | pure function |
 | `GET /api/referrals` · `POST /api/referrals` · `GET /api/referrals/{id}/pdf` | Referral briefs | none | demo / experimental | referral `id` |
 | `GET /api/admin/usage?since&until` | Gemini usage report | `Authorization: Bearer <ABHAYNAYAN_ADMIN_TOKEN>` | ops (aggregate) | safe |
+| `GET /api/assistant` · `POST /api/assistant/ask` | Help assistant: general information from the curated knowledge base, optionally worded by Agent37 (§4.8) | none (rate limited) | information only, never clinical | stateless |
 
 **Authentication.** Apart from the admin report, the prototype has **no authentication or authorization**. Do not expose it to the public internet or use it for real patients. A production deployment needs per-worker authentication, role-based access and an audit trail. That is a MAJOR contract change.
 
@@ -296,6 +323,47 @@ Returns `adapters.{maternal_anemia,neonatal_jaundice}`, each with `adapter_id`, 
 
 See [TOKEN_USAGE.md](TOKEN_USAGE.md). Returns `403 ADMIN_DISABLED` unless `ABHAYNAYAN_ADMIN_TOKEN` (16+ characters) is set, and `401` without a matching bearer token. `since`/`until` must be ISO-8601.
 
+### 4.8 Help assistant (`/api/assistant`, 1.4.0)
+
+General, non-clinical information about using AbhayNayan. It never estimates, diagnoses, interprets photos or results, or advises on medicines (docs/build2026/assistant.md).
+
+Request `POST /api/assistant/ask` (unknown fields are rejected with 422):
+
+```json
+{"question": "What does unable to estimate mean?", "language": "en"}
+```
+
+`question` is 1–500 characters. `language` is optional and only `en` is accepted.
+
+Response 200:
+
+```json
+{
+  "mode": "KNOWLEDGE_BASE",
+  "answer": "'Unable to estimate' means the app did not produce a value for this attempt ...",
+  "sources": [{"title": "AbhayNayan Terms & Conditions", "url": "app:terms"}],
+  "entry_ids": ["unable-to-estimate"],
+  "related": [],
+  "refusal_code": null,
+  "fallback_reason": null,
+  "kb_version": "2026-10-24.1",
+  "language": "en",
+  "generated_at": "2026-10-24T18:00:00.000000Z",
+  "notice": "General information only. Not medical advice, a diagnosis or a result."
+}
+```
+
+| `mode` | Meaning |
+|---|---|
+| `AGENT37` | Worded by the Agent37 instance from the cited entries, and accepted by the output validator (JSON, cites retrieved entries, ≤1200 characters, no unsafe claim, every number and URL appears in the cited entries) |
+| `KNOWLEDGE_BASE` | The approved text of the best-matching entry. Used when no provider is configured, and whenever the provider fails; `fallback_reason` then names why (`PROVIDER_NOT_CONFIGURED`, `PROVIDER_TIMEOUT`, `PROVIDER_UNREACHABLE`, `PROVIDER_AUTH_FAILED`, `PROVIDER_RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_BUSY`, `PROVIDER_MALFORMED_RESPONSE`, `PROVIDER_TURN_FAILED`, `PROVIDER_MALFORMED_OUTPUT`, `PROVIDER_EMPTY_OUTPUT`, `PROVIDER_OUTPUT_TOO_LONG`, `PROVIDER_UNSAFE_OUTPUT`, `PROVIDER_UNGROUNDED_OUTPUT`, `PROVIDER_WRONG_LANGUAGE`, `PROVIDER_DECLINED`) |
+| `REFUSED` | `refusal_code` `PERSONAL_INFORMATION`, `CLINICAL_REQUEST`, `URGENT_HELP` (fixed emergency message) or `OUT_OF_SCOPE`. Refused questions are never sent to a provider |
+| `NO_ANSWER` | `refusal_code` `NO_APPROVED_ANSWER`: nothing in the knowledge base matches. Nothing is generated |
+
+Errors: `422 VALIDATION_ERROR`, `429 RATE_LIMITED` (per client IP and global per-minute limits, `Retry-After`), `503 ASSISTANT_DISABLED` (`ABHAYNAYAN_ASSISTANT_ENABLED=0`). Questions and answers are not stored or logged by the server.
+
+`GET /api/assistant` returns `enabled`, `provider` (`knowledge_base` or `agent37`), `provider_configured`, `provider_problem` (a code such as `NOT_CONFIGURED`, never a value), `kb_version`, `kb_sha256`, `kb_entries`, `kb_review_status`, `languages`, `max_question_chars` and aggregate `outcomes` counts since the process started.
+
 ## 5. FHIR
 
 `POST /api/fhir` and every stored `fhir_bundle` return a `Bundle` (`type: collection`) of Patient, Encounter, Observation and DiagnosticReport. Observation and DiagnosticReport have `status: preliminary`. Rules:
@@ -325,3 +393,53 @@ Local status values, shared by both clients:
 5. Never run two sync loops at once.
 6. Strip local-only fields before upload: names, capture audit, sync metadata, local FHIR. Send `fhir_bundle: null`.
 7. Synthetic demo records must stay visibly labelled everywhere they appear: lists, PDFs, exports.
+
+## 7. Record sync v2 (proposed; **not implemented**; contract 1.4.0 added only the help assistant)
+
+No endpoint described here exists. `POST /api/v2/sync` returns 404 (`tests/test_record_integrity.py`), and the Android app never calls it: `OutcomeSync.availability` is fixed to `Disabled`, and no server response can switch it on. This section specifies what a backend must implement and test end to end **before** envelope sync can be enabled. Today, outcome envelopes, warnings and integrity data stay on the phone, and `/api/sync` keeps accepting only 1.x synthetic demo records without envelopes.
+
+### 7.1 Preconditions
+
+| Precondition | Status |
+|---|---|
+| Authenticated user session ([ADR-004](adr/ADR-004-identity.md), Phase 8) and a grant for the record's subject; `cloud_sync` consent | not implemented; OAuth client IDs are an open input |
+| Server storage that keeps the envelope verbatim (raw bytes plus hash) | not implemented ([ADR-003](adr/ADR-003-server-database.md)) |
+| Validator for the envelope (prediction contract §11) and the record hashes (`backend/app/core/record_integrity.py`) | **implemented and tested**, not wired to a route |
+
+### 7.2 Request
+
+`POST /api/v2/sync` with `Authorization: Bearer <session token>`. The body is `{"items": [<item>, …]}`, at most 100 items. Each item is what Android's `OutcomeSync.prepare` produces:
+
+```json
+{
+  "record_id": "scr-<uuid4>",
+  "hash_version": "abhaynayan.record-hash/1",
+  "content_sha256": "<64 hex>",
+  "record": { "hash_version": "…", "record_id": "…", "patient_id": "…", "…": "every field of record_contract.md §8.2" },
+  "prediction": { "envelope_json": "<the stored envelope string, verbatim>", "envelope_sha256": "<64 hex>" },
+  "warning_codes": ["CODE", "…"]
+}
+```
+
+`prediction` is `null` for legacy records without an envelope. Sync state, attempts and errors are never sent. Images and names are never sent.
+
+### 7.3 Server rules
+
+1. **Authenticate first,** then authorize each item's `patient_id` against the caller's grants. An ungranted item gets `rejected` with `FORBIDDEN_SUBJECT`. It is never written, and the response does not reveal whether the subject exists.
+2. **Recompute the hashes** with `verify_item`: the envelope SHA-256, the record's `prediction_sha256`, `content_sha256`, `warning_codes` against the envelope's warnings (order and duplicates included), and `record_id` consistency. Any problem gives `rejected` with `INTEGRITY_MISMATCH`. **Nothing is repaired, stripped or re-hashed.**
+3. **Validate the envelope** against its `schema` and the §11 invariants. A violation gives `rejected` with `ENVELOPE_INVALID`. An unknown schema MAJOR gives `rejected` with `SCHEMA_UNSUPPORTED`.
+4. **Store verbatim:** the envelope bytes and both hashes. `record_origin` and `integrity_baseline_at` are kept, so a legacy record stays labelled as legacy.
+5. **Idempotency:** the same `record_id` with the same `content_sha256` returns `duplicate`. The same `record_id` with a different `content_sha256` returns `conflict`, the server keeps its copy, and nothing is overwritten. A record of another user is a `conflict` only if the caller has a grant for it; otherwise it is `rejected` with `FORBIDDEN_SUBJECT`.
+6. **Warnings are append-only:** later server knowledge (for example a model revocation) is added as annotations ([record_contract.md §2](record_contract.md)), never by editing a stored envelope.
+7. **Rate limits:** the existing per-client limiter applies, plus a body limit.
+
+### 7.4 Response
+
+`200` with `{"results": [{"id": "scr-…", "status": "accepted|duplicate|conflict|rejected", "error_code": null|"…"}]}`, one result per item, in any order.
+
+- **Whole-request errors** (401, 403, 413, 429, 5xx, timeout) use the standard error body and carry no per-item results.
+- **Transport failure:** the client keeps every item `PENDING`, backs off, and retries with the same IDs. Partial results are applied per item, and an item missing from the response stays queued.
+
+### 7.5 Client states
+
+`LOCAL_ONLY` (not eligible), `PENDING`, `SYNCING`, `SYNCED` (only on `accepted` or `duplicate` for that exact ID), `FAILED`, `CONFLICT` and `REJECTED`. This is the same machine as 1.x ([§6](#6-offline-and-retry-rules-web-and-android)). A record that fails local verification is never sent and becomes `FAILED` with an integrity message. Until the endpoint exists, no outcome record is shown as synced.

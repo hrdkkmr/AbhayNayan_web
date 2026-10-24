@@ -5,7 +5,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 from pathlib import Path
+import sys
 from zipfile import ZIP_DEFLATED, ZipFile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_release_artifacts  # noqa: E402  (same directory)
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_ROOT = "AbhayNayan"
@@ -47,6 +51,8 @@ def is_excluded(path: Path, include_android_apk: bool = False) -> bool:
         return True
     # Trained research artifacts and per-patient plots are derived from unverified datasets (docs/ml_integration.md §4).
     if relative.parts[:1] == ("models",) and lower.startswith(("hb_", "njn_")):
+        return True
+    if "assets/models/" in relative.as_posix() + "/":
         return True
     if "predicted_vs_measured" in lower:
         return True
@@ -108,6 +114,11 @@ def main() -> None:
         if any(f"{ARCHIVE_ROOT}/{name}" not in names for name in REQUIRED_PATHS):
             output.unlink(missing_ok=True)
             raise SystemExit("ZIP integrity check did not find all required release files.")
+    # Final gate on the finished archive, including any APK inside it (audit M7).
+    prohibited = check_release_artifacts.prohibited_entries(output)
+    if prohibited:
+        output.unlink(missing_ok=True)
+        raise SystemExit("Release ZIP would contain research model files (deleted): " + ", ".join(prohibited[:10]))
 
     digest = sha256(output)
     checksum_path = output.with_suffix(output.suffix + ".sha256")

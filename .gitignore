@@ -44,3 +44,7 @@ data/private/
 models/hb_*.json
 models/njn_*
 ml/runs/**/*predicted_vs_measured*
+
+# Build 2026 job bundles and raw platform evidence (review and redact before sharing; docs/build2026/evidence.md).
+dist/
+evidence/local/

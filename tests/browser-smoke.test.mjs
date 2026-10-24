@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { runDemoInference } from '../web-dashboard/js/inference.js';
 import { localCounsel } from '../web-dashboard/js/language.js';
+import { TERMS_PATH, acceptTermsDialog, termsResponse } from './helpers/terms.mjs';
 
 const waitFor = async (check, label) => {
   for (let i = 0; i < 100; i += 1) {
@@ -39,6 +40,7 @@ test('PWA completes maternal and newborn synthetic flows with age-in-hours conte
   const counsellingRequests = [];
   const jsonResponse = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } });
   globalThis.fetch = async (path, options = {}) => {
+    if (path === TERMS_PATH) return termsResponse();
     if (path === '/api/health') return jsonResponse({ status: 'ok', mode: 'PROTOTYPE_DEMO', gemini_configured: false });
     if (path === '/api/screenings') {
       screeningPayload = JSON.parse(options.body);
@@ -60,8 +62,10 @@ test('PWA completes maternal and newborn synthetic flows with age-in-hours conte
 
   try {
     await import(`../web-dashboard/js/app.js?dom-smoke=${Date.now()}`);
-    await waitFor(() => document.querySelector('.hero-panel'), 'home dashboard');
+    await waitFor(() => document.querySelector('.welcome-panel'), 'home dashboard');
     document.querySelector('[data-action="start-screening"]').click();
+    // First screening on this device: the terms must be shown and accepted before the workflow opens.
+    await acceptTermsDialog(document, waitFor);
     await waitFor(() => document.querySelector('#patientSelect'), 'patient/workflow step');
     document.querySelector('[data-action="wizard-next"]').click();
     await waitFor(() => document.querySelector('[data-action="synthetic-image"]'), 'capture step');
@@ -89,9 +93,10 @@ test('PWA completes maternal and newborn synthetic flows with age-in-hours conte
     assert.match(document.querySelector('.data-table tbody').textContent, /11\.8 g\/dL/);
 
     document.querySelector('.nav-item[data-page="home"]').click();
-    await waitFor(() => document.querySelector('.hero-panel'), 'home before newborn flow');
+    await waitFor(() => document.querySelector('.welcome-panel'), 'home before newborn flow');
     document.querySelector('[data-action="start-jaundice"]').click();
     await waitFor(() => document.querySelector('#patientSelect'), 'newborn profile selection');
+    assert.equal(document.querySelector('.terms-dialog'), null, 'accepted terms are not asked again');
     const profiles = JSON.parse(localStorage.getItem('abn_patients'));
     const newborn = profiles.find((patient) => patient.demoKind === 'newborn');
     assert.ok(newborn, 'a dedicated synthetic newborn profile is seeded');
