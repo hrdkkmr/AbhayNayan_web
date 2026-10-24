@@ -462,7 +462,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .terms-summary { margin: 14px 0 0; padding-left: 20px; color: var(--ink); font-size: 15px; line-height: 1.7; }
 .terms-section { padding: 18px 0; border-top: 1px solid var(--line); }
 .terms-section h2 { margin: 0 0 8px; color: var(--navy); font-size: 18px; }
-.terms-section p, .terms-section li { color: var(--body); font-size: 15px; line-height: 1.7; max-width: 72ch; }
+.terms-section p, .terms-section li { color: var(--body); font-size: 15px; line-height: 1.7; max-width: 72ch; overflow-wrap: anywhere; }
 .terms-section ul { padding-left: 20px; margin: 8px 0 0; }
 .terms-toc { columns: 2; column-gap: 24px; padding-left: 20px; margin: 10px 0 0; font-size: 14px; }
 .terms-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -503,4 +503,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .qr-frame { max-width: 240px; margin: 0 auto; }
   .welcome-actions .btn { flex: 1 1 100%; }
   .data-table { min-width: 560px; }
+  .row-between { flex-wrap: wrap; }
+  .row-between > .badge { white-space: normal; }
 }

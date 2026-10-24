@@ -62,6 +62,8 @@ test('terms acceptance logic is version based', () => {
 });
 
 test('the canonical terms file has the required sections, a version and a date', () => {
+  // Android ships a copy; both suites pin this hash (LF line endings) so the copies cannot drift (docs/build2026/terms.md).
+  assert.equal(crypto.createHash('sha256').update(termsText.replace(/\r\n/g, '\n')).digest('hex'), 'd79ea4c99187d747029b690a52430e6857500d70f78a0f58dd5be29e4d472c1e');
   assert.match(terms.version, /^\d+\.\d+$/);
   assert.match(terms.last_updated, /^\d{4}-\d{2}-\d{2}$/);
   const ids = terms.sections.map((s) => s.id);

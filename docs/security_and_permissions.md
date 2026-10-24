@@ -123,6 +123,18 @@ Applies to every endpoint that accepts an image or document.
 - Deployment configuration still needed. **None of these is invented here; all are open (§10):** Google OAuth web client ID, Android client ID(s) with the release signing SHA-256 fingerprint, allowed audiences, production domain (CORS, cookies, App Links, OAuth origins), database host, email provider, model-release public key.
 - Minimisation: pseudonymous subject IDs; coded context only; no images uploaded by default; LLM requests carry only the fields in the report fact sheet the user consented to ([architecture.md §4.11](architecture.md)); logs and notifications carry no clinical content ([record_contract.md §7](record_contract.md)).
 
+## 8b. Build 2026 integrations (help assistant, Agent37, Nodus)
+
+| Topic | Rule |
+|---|---|
+| Agent37 credentials | `AGENT37_API_KEY` exists only in the server environment. It is sent only as the `X-Agent37-Key` header to `*.agent37.app`. It is never sent to Android or the PWA, never returned by `/api/assistant` or `/api/ready` (which report problem codes only) and never logged. `httpx` request lines for Agent37 hosts are filtered out |
+| Data sent to Agent37 | The guarded question plus up to two approved knowledge-base passages and the knowledge-base version. Questions with personal details or clinical requests are refused **before** any provider call (tested). No records, images or identifiers |
+| Output | Untrusted. Accepted only if it is grounded and safe (`core.validate_provider_output`); otherwise the approved text is shown. It cannot produce a value, diagnosis or dose |
+| Abuse limits | 500-character questions, unknown fields rejected, per-IP and global rate limits, at most 2 concurrent provider calls, timeout 30 s (5–120) |
+| Nodus | Receives only the evaluation bundle: the assistant core, the knowledge base, synthetic cases and the runner (`scripts/assistant_eval/build_bundle.py`). The job is run from the bundle directory so `.env`, datasets and records cannot be uploaded. Nodus credentials stay in the Nodus CLI's own login. The app never calls Nodus |
+| Evidence | Raw platform output goes to `evidence/local/` (ignored by Git) and is reviewed and redacted before sharing |
+| QR | Generated locally (no third-party QR service). The URL never carries tokens or personal data, and validation refuses query strings and fragments |
+
 ## 8a. Local database protection (Android, Phase 6)
 
 Implemented as in [ADR-005](adr/ADR-005-local-encryption.md). Emulator-verified only.

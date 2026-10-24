@@ -360,6 +360,27 @@ No clinical inference enabled, no model weights, datasets, `.env` or screenshots
 | — | Body-site verification / segmentation needs a licensed, validated component (blocked on data licences) |
 | — | Still open: Q1–Q5, `kushagra-p1`, OAuth IDs, domain, database host, dataset licences |
 
+## Build 2026 phase: presentation, terms, QR, help assistant, Agent37 and Nodus (24–25 October 2026)
+
+There was no clinical change:
+- research switches are off;
+- no model was trained, activated or replaced;
+- outcome contract unchanged;
+- Phase 6 encryption and integrity are untouched;
+- API contract **1.4.0** is additive.
+
+Details: [build2026/README.md](build2026/README.md).
+
+| Item | Status |
+|---|---|
+| Public-service UI (web and Android palette, quieter safety notes) | Done; tested at 320 px, 375 px and desktop widths with no horizontal overflow |
+| Terms & Conditions with version-based acceptance | Done on web and Android ([build2026/terms.md](build2026/terms.md)) |
+| Get the app QR | Done. Opens the verified web app, because no public Android release exists |
+| Help assistant (knowledge base) | Done and tested |
+| Agent37 | Adapter done and tested against mocks. **Not verified on the platform: no account or key** |
+| Nodus | Workload, bundle and job wrapper done; local run passes. **No Nodus job run: CLI, login and credits unavailable** |
+| `qa` Android build type for testers | Done. Release behaviour, debug-key signed, separate application ID, research-artifact check |
+
 ## Phase 6 offline-first foundation, encrypted storage and record integrity (24 October 2026): implemented, uncommitted
 
 No clinical inference was enabled; research switches stay off (`.env` `ABHAYNAYAN_ENABLE_EXPERIMENTAL_ANEMIA=0`, image flag absent, Android `experimentalModels` default false, release `RESEARCH_MODELS_ALLOWED=false`). No model weights, datasets, `.env` or screenshots were changed, and there was no commit. The staged `gradlew` mode change (100644 → 100755) is preserved.

@@ -32,6 +32,11 @@ Whatever the environment, a weak or placeholder signing key is **never used**: p
 | `WEB_CONCURRENCY`, `ABHAYNAYAN_WORKERS` | no | 1 | production: > 1 ⇒ `RATE_LIMITER_REQUIRES_SINGLE_PROCESS` (limits live in process memory) |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | no | unset | only one set ⇒ `INCOMPLETE` (warning; readiness `gemini: misconfigured`, status `degraded`) |
 | `ABHAYNAYAN_DB_PATH`, `ABHAYNAYAN_PORT`, PDF font paths, `GEMINI_TIMEOUT_SECONDS`, `GEMINI_MAX_OUTPUT_TOKENS` | no | unchanged | unchanged |
+| `ABHAYNAYAN_ASSISTANT_ENABLED` | no | `1` | `0`, `false`, `no` or `off` disables the help assistant (`503 ASSISTANT_DISABLED`) |
+| `ABHAYNAYAN_ASSISTANT_PROVIDER` | no | `knowledge_base` | `agent37` uses Agent37 when the two `AGENT37_*` values below are valid; otherwise the approved text is answered with `fallback_reason: PROVIDER_NOT_CONFIGURED` |
+| `AGENT37_API_KEY`, `AGENT37_INSTANCE_URL` | no | unset | Server only. Problem codes in `GET /api/ready` → `integrations.assistant.agent37`: `NOT_CONFIGURED`, `INCOMPLETE`, `MALFORMED_KEY` (not `sk_…`), `MALFORMED_INSTANCE_URL` (not `https://<10 chars>.agent37.app`) |
+| `AGENT37_TIMEOUT_SECONDS` | no | `30` | clamped to 5–120 |
+| `ABHAYNAYAN_ASSISTANT_RATE_PER_MINUTE`, `ABHAYNAYAN_ASSISTANT_GLOBAL_RATE_PER_MINUTE` | no | `6`, `60` | per client IP and for all clients; invalid values fall back to the default |
 
 The limit defaults are **engineering starting points**. They are not operationally validated and should be tuned from measured load.
 
@@ -55,6 +60,14 @@ ABHAYNAYAN_AUTH_FAILURES_PER_MINUTE_PER_IP=20
 ABHAYNAYAN_MAX_IMAGE_BYTES=8388608
 # Production also needs ABHAYNAYAN_ALLOW_ORIGINS=https://<your-domain> (domain not yet decided).
 ```
+
+## 3a. QR destination ("Get the AbhayNayan app")
+
+No server variable is involved. The QR code is generated on the client from:
+- **Web:** `web-dashboard/js/distribution.js` (`kind`, `url`, `verifiedOn`).
+- **Android:** the Gradle properties `abhaynayanAppShareKind` and `abhaynayanAppShareUrl`, which become `BuildConfig.APP_SHARE_KIND` and `APP_SHARE_URL`.
+
+The default is `web_app`, `https://abhaynayan-web.onrender.com/` (verified 24 Oct 2026; there is no public Android release). The URL must be https and a page, not an APK; anything else shows no QR. To switch to an authorized installation page, use `android_install_page` ([build2026/README.md](build2026/README.md)).
 
 ## 4. Access tokens until Google sign-in exists
 

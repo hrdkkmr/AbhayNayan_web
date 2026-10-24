@@ -227,6 +227,7 @@ Facts the design starts from (audit): the Android app does **not** send images t
 | Failure | Offline, unconsented, provider error or validator rejection ⇒ reviewed static text, labelled as such. The UI never claims the LLM is available offline |
 | Depends on | 4.9, 4.6 |
 | Phase | 10 |
+| Status (Build 2026) | A **narrower** first step exists: a general-information assistant (`backend/app/assistant/`, `POST /api/assistant/ask`) that uses no record or fact sheet. It answers only from a curated knowledge base. Agent37 can optionally reword the answer, and the output validator above (numbers, URLs, unsafe phrases) is implemented for that text. Record-grounded explanations are still Phase 10. See [build2026/assistant.md](build2026/assistant.md) |
 
 ### 4.12 Email and WhatsApp sharing with delivery state
 
