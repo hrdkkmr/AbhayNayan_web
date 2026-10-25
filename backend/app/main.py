@@ -28,7 +28,7 @@ from app.core.ratelimit import Limiter
 from app.core.model_adapters import ADAPTERS, CANDIDATE_MODELS, InferenceError, adapter_for
 from app.ml import features as ml_features, imageio, quality as ml_quality
 from app.ml.registry import HB_PLAUSIBLE, IMAGE_MODELS_FLAG, REGISTRY, SERVED as SERVED_BY_TASK, ModelError, flag_enabled
-from app.assistant import service as assistant
+from app.assistant import service as assistant, suggestions
 from app.models.schemas import (
     API_CONTRACT_VERSION,
     AssistantAskRequest,
@@ -470,6 +470,16 @@ async def assistant_ask(body: AssistantAskRequest, request: Request) -> dict[str
         raise ApiError(429, 'RATE_LIMITED', 'Too many questions. Try again in a minute.', retryable=True,
                        headers={'Retry-After': str(decision.retry_after_seconds)})
     return await assistant.ask(body.question)
+
+
+@app.post('/api/suggestions', tags=['assistant'], responses=ERROR_RESPONSES)
+async def screening_suggestions(body: suggestions.SuggestionRequest, request: Request) -> dict[str, Any]:
+    """Agent37-written suggestions after an Android screening result; structured fields only, never a photo or ID."""
+    decision = assistant.check_rate(_client_ip(request))
+    if not decision.allowed:
+        raise ApiError(429, 'RATE_LIMITED', 'Too many requests. Try again in a minute.', retryable=True,
+                       headers={'Retry-After': str(decision.retry_after_seconds)})
+    return await suggestions.suggest(body)
 
 
 @app.post('/api/fhir', tags=['interop'], responses=ERROR_RESPONSES)
